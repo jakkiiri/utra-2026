@@ -1,12 +1,13 @@
 "use client"
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
-import { MessageSquare, Wand2, Mic, MicOff, Loader2 } from "lucide-react"
+import { MessageSquare, Wand2, Mic, MicOff, Loader2, ChevronUp, ChevronDown } from "lucide-react"
 
 interface AIChatInputProps {
   onSendMessage: (message: string) => void
   onVoiceInput?: (transcript: string) => void
   onVoiceStart?: () => void  // Called when voice detection starts
+  onListeningChange?: (isListening: boolean) => void  // Track listening state
   isProcessing?: boolean
   placeholder?: string
 }
@@ -15,12 +16,14 @@ export function AIChatInput({
   onSendMessage, 
   onVoiceInput,
   onVoiceStart,
+  onListeningChange,
   isProcessing = false,
   placeholder = "Ask AI about historical comparisons or live stats..."
 }: AIChatInputProps) {
   const [message, setMessage] = useState("")
   const [isListening, setIsListening] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState("")
+  const [isMinimized, setIsMinimized] = useState(false)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
 
   useEffect(() => {
@@ -89,6 +92,12 @@ export function AIChatInput({
     }
   }, [onVoiceInput, onVoiceStart])
 
+  // Notify parent of listening state changes
+  useEffect(() => {
+    console.log('Voice listening state changed:', isListening)
+    onListeningChange?.(isListening)
+  }, [isListening, onListeningChange])
+
   const toggleVoiceInput = useCallback(() => {
     if (!recognitionRef.current) {
       alert("Voice input is not supported in your browser. Please try Chrome, Edge, or Safari.")
@@ -122,10 +131,37 @@ export function AIChatInput({
     onSendMessage(action)
   }
 
+  // Minimized view - just a small floating button
+  if (isMinimized) {
+    return (
+      <div className="fixed bottom-6 lg:bottom-10 left-1/2 -translate-x-1/2 z-50">
+        <button
+          onClick={() => setIsMinimized(false)}
+          className="input-glass px-4 py-2 rounded-full flex items-center gap-2 shadow-2xl hover:bg-white/10 transition-all"
+          aria-label="Expand chat input"
+        >
+          <MessageSquare className="size-4 text-lavender-300" />
+          <span className="text-xs text-white/80">Ask AI</span>
+          <ChevronUp className="size-4 text-white/60" />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="fixed bottom-6 lg:bottom-10 left-1/2 -translate-x-1/2 w-full max-w-3xl z-50 px-4 lg:px-6">
       <form onSubmit={handleSubmit} className="input-glass p-2 rounded-xl lg:rounded-2xl flex items-center gap-2 lg:gap-3 shadow-2xl">
-        <div className="flex-1 flex items-center gap-2 lg:gap-3 px-3 lg:px-4">
+        {/* Minimize button */}
+        <button
+          type="button"
+          onClick={() => setIsMinimized(true)}
+          className="size-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-all text-white/40 hover:text-white/80"
+          aria-label="Minimize chat input"
+        >
+          <ChevronDown className="size-4" />
+        </button>
+        
+        <div className="flex-1 flex items-center gap-2 lg:gap-3 px-2 lg:px-3">
           <MessageSquare className="size-4 lg:size-5 text-lavender-300 flex-shrink-0" aria-hidden="true" />
           <div className="w-full relative">
             <input 

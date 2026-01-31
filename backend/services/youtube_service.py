@@ -9,7 +9,7 @@ from models import TranscriptEntry
 class YouTubeService:
     """Service for handling YouTube video operations and transcript retrieval."""
     
-    # In-memory transcript storage (for MVP - would use Redis in production)
+    # In-memory storage (for MVP - would use Redis in production)
     _transcripts: dict[str, List[TranscriptEntry]] = {}
     _video_metadata: dict[str, dict] = {}
     
@@ -30,30 +30,88 @@ class YouTubeService:
     
     @classmethod
     async def get_video_metadata(cls, video_id: str) -> dict:
-        """Get video metadata using oEmbed API (no API key required)."""
+        """Get video metadata using oEmbed API and scraping (no API key required)."""
+        metadata = {
+            "video_id": video_id,
+            "title": "Winter Olympics Event",
+            "author": "Unknown",
+            "description": "",
+            "thumbnail": ""
+        }
+        
         try:
             async with httpx.AsyncClient() as client:
+                # Get basic info from oEmbed
                 response = await client.get(
                     f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json",
                     timeout=10.0
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    return {
-                        "video_id": video_id,
-                        "title": data.get("title", "Unknown Title"),
-                        "author": data.get("author_name", "Unknown"),
-                        "thumbnail": data.get("thumbnail_url", "")
-                    }
+                    metadata["title"] = data.get("title", "Unknown Title")
+                    metadata["author"] = data.get("author_name", "Unknown")
+                    metadata["thumbnail"] = data.get("thumbnail_url", "")
+                
+                # Try to get description from page (basic scraping)
+                try:
+                    page_response = await client.get(
+                        f"https://www.youtube.com/watch?v={video_id}",
+                        timeout=10.0,
+                        headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    if page_response.status_code == 200:
+                        content = page_response.text
+                        # Extract description from meta tag
+                        desc_match = re.search(r'<meta name="description" content="([^"]*)"', content)
+                        if desc_match:
+                            metadata["description"] = desc_match.group(1)
+                except Exception as e:
+                    print(f"Could not fetch video description: {e}")
+                    
         except Exception as e:
             print(f"Error fetching video metadata: {e}")
         
-        return {
-            "video_id": video_id,
-            "title": "Winter Olympics Event",
-            "author": "Unknown",
-            "thumbnail": ""
-        }
+        # Store metadata for later use
+        cls._video_metadata[video_id] = metadata
+        return metadata
+    
+    @classmethod
+    def get_stored_metadata(cls, video_id: str) -> dict:
+        """Get stored metadata for a video."""
+        return cls._video_metadata.get(video_id, {})
+    
+    @classmethod
+    def get_context_text(cls, video_id: str, current_time: float = 0) -> str:
+        """
+        Get context text for AI - uses transcript if available, 
+        otherwise falls back to video metadata.
+        """
+        # First try to get transcript context
+        transcript_entries = cls.get_transcript_window(video_id, current_time, 30.0)
+        
+        if transcript_entries:
+            formatted = []
+            for entry in transcript_entries:
+                minutes = int(entry.start // 60)
+                seconds = int(entry.start % 60)
+                formatted.append(f"[{minutes}:{seconds:02d}] {entry.text}")
+            return "Recent commentary transcript:\n" + "\n".join(formatted)
+        
+        # Fall back to metadata
+        metadata = cls._video_metadata.get(video_id, {})
+        if metadata:
+            context_parts = []
+            if metadata.get("title"):
+                context_parts.append(f"Video Title: {metadata['title']}")
+            if metadata.get("author"):
+                context_parts.append(f"Channel: {metadata['author']}")
+            if metadata.get("description"):
+                context_parts.append(f"Description: {metadata['description']}")
+            
+            if context_parts:
+                return "Video information (no transcript available):\n" + "\n".join(context_parts)
+        
+        return "No transcript or video information available."
     
     @classmethod
     def fetch_transcript(cls, video_id: str) -> Tuple[List[TranscriptEntry], bool]:

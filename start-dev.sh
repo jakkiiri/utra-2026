@@ -24,7 +24,17 @@ fi
 echo -e "${GREEN}Starting Backend Server (FastAPI)...${NC}"
 cd "$SCRIPT_DIR/backend"
 source venv/bin/activate
-pip install -r requirements.txt
+
+# Only install requirements if marker is missing or requirements.txt is newer
+MARKER_FILE="venv/.requirements_installed"
+if [ ! -f "$MARKER_FILE" ] || [ "requirements.txt" -nt "$MARKER_FILE" ]; then
+    echo -e "${YELLOW}Installing Python dependencies...${NC}"
+    pip install -r requirements.txt
+    touch "$MARKER_FILE"
+else
+    echo -e "${GREEN}Python dependencies already installed.${NC}"
+fi
+
 uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
@@ -34,7 +44,15 @@ sleep 3
 # Start Frontend
 echo -e "${GREEN}Starting Frontend Server (Next.js)...${NC}"
 cd "$SCRIPT_DIR/frontend"
-npm install
+
+# Only install if node_modules doesn't exist or package.json is newer
+if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
+    echo -e "${YELLOW}Installing npm dependencies...${NC}"
+    npm install
+else
+    echo -e "${GREEN}npm dependencies already installed.${NC}"
+fi
+
 npm run dev &
 FRONTEND_PID=$!
 

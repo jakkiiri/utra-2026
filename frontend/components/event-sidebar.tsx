@@ -1,6 +1,7 @@
 "use client"
 
-import { TrendingUp, AlertTriangle } from "lucide-react"
+import { useState } from "react"
+import { TrendingUp, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface EventSidebarProps {
   eventName: string
@@ -27,68 +28,91 @@ export function EventSidebar({
   technicalScore,
   riskWarning
 }: EventSidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false)
+
+  if (isCollapsed) {
+    return (
+      <button
+        onClick={() => setIsCollapsed(false)}
+        className="glass-overlay p-2 rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"
+        aria-label="Expand event info"
+      >
+        <ChevronRight className="size-5 text-white/80" />
+      </button>
+    )
+  }
+
   return (
-    <aside className="w-full lg:w-80 flex flex-col gap-4 lg:gap-6">
+    <aside className="w-full lg:w-64 flex flex-col gap-3 lg:gap-4">
+      {/* Collapse button */}
+      <button
+        onClick={() => setIsCollapsed(true)}
+        className="hidden lg:flex glass-overlay p-1.5 rounded-lg items-center justify-center hover:bg-white/20 transition-all self-end"
+        aria-label="Collapse event info"
+      >
+        <ChevronLeft className="size-4 text-white/60" />
+      </button>
+
       {/* Event Info Card */}
-      <div className="glass-overlay lavender-glow p-4 lg:p-6 rounded-2xl lg:rounded-3xl">
-        <div className="bg-white/10 w-fit px-3 py-1 rounded-full text-[10px] font-bold text-lavender-300 border border-lavender-400/30 mb-3 lg:mb-4">
+      <div className="glass-overlay lavender-glow p-3 lg:p-4 rounded-xl lg:rounded-2xl">
+        <div className="bg-white/10 w-fit px-2 py-0.5 rounded-full text-[9px] font-bold text-lavender-300 border border-lavender-400/30 mb-2">
           EVENT INFO
         </div>
-        <h1 className="text-xl lg:text-2xl font-light leading-tight text-white">
+        <h1 className="text-base lg:text-lg font-light leading-tight text-white">
           {eventName}: <br/>
-          <span className="font-bold">{eventSubtitle}</span>
+          <span className="font-bold text-sm lg:text-base">{eventSubtitle}</span>
         </h1>
-        <div className="flex items-center gap-3 mt-3 lg:mt-4">
+        <div className="flex items-center gap-2 mt-2">
           {isLive && (
-            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500 rounded-full text-[10px] font-bold text-white uppercase tracking-wider">
-              <span className="size-1.5 bg-white rounded-full animate-pulse" />
+            <span className="flex items-center gap-1 px-2 py-0.5 bg-red-500 rounded-full text-[9px] font-bold text-white uppercase tracking-wider">
+              <span className="size-1 bg-white rounded-full animate-pulse" />
               Live
             </span>
           )}
-          <span className="text-xs text-white/60">{venue}</span>
+          <span className="text-[10px] text-white/60">{venue}</span>
         </div>
       </div>
 
-      {/* Live Betting Odds Card */}
-      <div className="glass-overlay lavender-glow p-4 lg:p-6 rounded-2xl lg:rounded-3xl">
-        <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold mb-2 lg:mb-3">
+      {/* Live Betting Odds Card - Compact */}
+      <div className="glass-overlay lavender-glow p-3 lg:p-4 rounded-xl lg:rounded-2xl">
+        <p className="text-[9px] uppercase tracking-widest text-white/50 font-bold mb-1">
           Live Betting Odds
         </p>
         <div className="flex items-baseline gap-2">
-          <span className="text-3xl lg:text-4xl font-bold text-white">{winProbability}%</span>
-          <span className={`text-sm font-bold flex items-center tracking-tight ${
+          <span className="text-2xl font-bold text-white">{winProbability}%</span>
+          <span className={`text-xs font-bold flex items-center tracking-tight ${
             probabilityChange >= 0 ? 'text-emerald-400' : 'text-red-400'
           }`}>
-            <TrendingUp className="size-4" />
+            <TrendingUp className="size-3" />
             {probabilityChange >= 0 ? '+' : ''}{probabilityChange}%
           </span>
         </div>
-        <div className="mt-3 lg:mt-4 pt-3 lg:pt-4 border-t border-white/10">
-          <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold mb-2">
+        <div className="mt-2 pt-2 border-t border-white/10">
+          <p className="text-[9px] uppercase tracking-widest text-white/50 font-bold mb-1">
             Technical Estimate
           </p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl lg:text-3xl font-light text-white">{technicalScore.toFixed(2)}</span>
-            <span className="text-white/40 text-[10px]">TES</span>
+          <div className="flex items-baseline gap-1">
+            <span className="text-xl font-light text-white">{technicalScore.toFixed(2)}</span>
+            <span className="text-white/40 text-[9px]">TES</span>
           </div>
         </div>
       </div>
 
-      {/* Risk Warning Card */}
+      {/* Risk Warning Card - Compact */}
       {riskWarning && (
-        <div className="glass-overlay lavender-glow p-4 lg:p-6 rounded-2xl lg:rounded-3xl border-l-4 border-l-amber-400/50">
-          <div className="flex items-center gap-2 mb-2 lg:mb-3">
-            <AlertTriangle className="size-4 lg:size-5 text-amber-400" />
-            <span className="text-[10px] font-bold text-amber-200 uppercase tracking-wider">
+        <div className="glass-overlay lavender-glow p-3 lg:p-4 rounded-xl lg:rounded-2xl border-l-2 border-l-amber-400/50">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <AlertTriangle className="size-3 text-amber-400" />
+            <span className="text-[9px] font-bold text-amber-200 uppercase tracking-wider">
               {riskWarning.title}
             </span>
           </div>
-          <p className="text-sm text-white/80 leading-relaxed">
+          <p className="text-xs text-white/80 leading-relaxed">
             {riskWarning.description.replace(
               `${riskWarning.probability}%`,
               ''
             )}
-            <span className="text-amber-400 font-bold">{riskWarning.probability}%</span> probability of error.
+            <span className="text-amber-400 font-bold">{riskWarning.probability}%</span> error risk.
           </p>
         </div>
       )}

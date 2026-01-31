@@ -10,6 +10,8 @@ interface VideoPlayerProps {
   onTimeUpdate?: (currentTime: number) => void
   isNarrating?: boolean
   externalPause?: boolean // Allow external control to pause
+  voiceInputActive?: boolean // Mute completely during voice input
+  aiSpeaking?: boolean // Lower volume during AI speech
 }
 
 export function VideoPlayer({ 
@@ -17,7 +19,9 @@ export function VideoPlayer({
   onPlayStateChange,
   onTimeUpdate,
   isNarrating = false,
-  externalPause = false
+  externalPause = false,
+  voiceInputActive = false,
+  aiSpeaking = false
 }: VideoPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(0.66)
@@ -144,6 +148,46 @@ export function VideoPlayer({
       playerRef.current.pauseVideo()
     }
   }, [externalPause, isPlaying])
+
+  // Store user's preferred volume before any adjustments
+  const userVolumeRef = useRef<number>(0.66)
+
+  // Keep ref updated with user's volume preference (when not being adjusted externally)
+  useEffect(() => {
+    if (!voiceInputActive && !aiSpeaking) {
+      userVolumeRef.current = volume
+    }
+  }, [volume, voiceInputActive, aiSpeaking])
+
+  // Handle voice input - MUTE completely
+  useEffect(() => {
+    if (playerRef.current && isReady) {
+      if (voiceInputActive) {
+        console.log('Voice input active - muting video')
+        playerRef.current.mute()
+      } else if (!isMuted && !aiSpeaking) {
+        // Restore full volume when voice input ends (if not AI speaking and user hasn't muted)
+        console.log('Voice input ended - restoring volume to', userVolumeRef.current * 100)
+        playerRef.current.unMute()
+        playerRef.current.setVolume(userVolumeRef.current * 100)
+      }
+    }
+  }, [voiceInputActive, isReady, isMuted, aiSpeaking])
+
+  // Handle AI speaking - LOWER volume (not mute)
+  useEffect(() => {
+    if (playerRef.current && isReady && !voiceInputActive) {
+      if (aiSpeaking) {
+        console.log('AI speaking - lowering video volume to 15%')
+        playerRef.current.unMute()
+        playerRef.current.setVolume(15) // Lower to 15% during AI speech
+      } else if (!isMuted) {
+        // Restore user's volume when AI stops speaking
+        console.log('AI stopped - restoring volume to', userVolumeRef.current * 100)
+        playerRef.current.setVolume(userVolumeRef.current * 100)
+      }
+    }
+  }, [aiSpeaking, isReady, isMuted, voiceInputActive])
 
   // Update volume when changed
   useEffect(() => {

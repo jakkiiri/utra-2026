@@ -23,10 +23,13 @@ export default function SportsNarratorPage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [shouldPause, setShouldPause] = useState(false)
+  const [shouldMuteVideo, setShouldMuteVideo] = useState(false)
   
   // AI state
   const [isProcessing, setIsProcessing] = useState(false)
   const [isNarrating, setIsNarrating] = useState(false)
+  const [isListeningToVoice, setIsListeningToVoice] = useState(false)
+  const [isPlayingAIAudio, setIsPlayingAIAudio] = useState(false)
   
   // Commentary feed
   const [commentary, setCommentary] = useState<CommentaryItem[]>([
@@ -52,6 +55,11 @@ export default function SportsNarratorPage() {
 
   // Audio playback ref - connected to DOM audio element
   const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // Debug: log mute state changes
+  useEffect(() => {
+    console.log('[Page] Mute state - listening:', isListeningToVoice, 'AI playing:', isPlayingAIAudio)
+  }, [isListeningToVoice, isPlayingAIAudio])
 
   // WebSocket connection
   useEffect(() => {
@@ -162,10 +170,22 @@ export default function SportsNarratorPage() {
       audioRef.current.src = fullUrl
       audioRef.current.load()
       
+      // Mute video while AI audio plays
+      setIsPlayingAIAudio(true)
+      
+      audioRef.current.onended = () => {
+        setIsPlayingAIAudio(false)
+      }
+      
+      audioRef.current.onerror = () => {
+        setIsPlayingAIAudio(false)
+      }
+      
       audioRef.current.play()
         .then(() => console.log('Audio playing successfully'))
         .catch((error) => {
           console.error('Audio play failed:', error)
+          setIsPlayingAIAudio(false)
           // Some browsers block autoplay - show a message
           if (error.name === 'NotAllowedError') {
             console.log('Autoplay blocked by browser. User interaction required.')
@@ -320,6 +340,8 @@ export default function SportsNarratorPage() {
         onTimeUpdate={handleTimeUpdate}
         isNarrating={isNarrating}
         externalPause={shouldPause}
+        voiceInputActive={isListeningToVoice}
+        aiSpeaking={isPlayingAIAudio}
       />
 
       {/* Header */}
@@ -355,6 +377,7 @@ export default function SportsNarratorPage() {
       <AIChatInput 
         onSendMessage={handleSendMessage}
         onVoiceInput={handleVoiceInput}
+        onListeningChange={setIsListeningToVoice}
         isProcessing={isProcessing}
         placeholder={videoId 
           ? "Ask about the event, rules, athletes, or what's happening..." 

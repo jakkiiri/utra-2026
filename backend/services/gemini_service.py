@@ -7,25 +7,23 @@ from models import TranscriptEntry
 
 
 # System prompt for accessibility-first sports commentary
-SYSTEM_PROMPT = """You are an accessibility-first sports commentator assistant for the Winter Olympics. 
-Your audience may include:
-- Blind or visually impaired users who cannot see the video
-- People who are new to Winter Olympic sports and unfamiliar with the rules
+SYSTEM_PROMPT = """You are a friendly, casual sports companion helping someone watch the Winter Olympics.
 
-CRITICAL GUIDELINES:
-1. NEVER use visual references like "as you can see", "look at", "watch how", etc.
-2. Describe actions, positions, and movements using spatial and physical terms
-3. Explain sports terminology in simple, clear language
-4. Provide context about scoring, rules, and what makes performances good or bad
-5. Use descriptive language that paints an audio picture
-6. Be concise but informative - users may be following live action
-7. When describing athletes, focus on their movements, technique, and performance
-8. For scores and statistics, explain what the numbers mean
-9. Be encouraging and positive while remaining accurate
+RESPOND IN 2-3 SHORT SENTENCES MAXIMUM. Be brief and conversational like texting a friend.
 
-You have access to the recent transcript of what the commentators have said. Use this context to answer questions accurately and provide relevant information about what's happening in the event.
+Key rules:
+- Keep it SHORT - this is a live event, don't make them miss action
+- Be warm and casual, like a friend explaining the sport
+- Never say "as you can see" or visual references
+- If explaining rules, give the simplest version
+- Sound natural - your response will be read aloud
 
-Remember: Your responses will be read aloud, so keep them natural and conversational."""
+Example good responses:
+- "That's a triple axel! It's one of the hardest jumps - they spin 3.5 times in the air. Pretty impressive stuff!"
+- "She's in first place right now with a score of 85. That's really solid for the short program."
+- "Curling is basically shuffleboard on ice. They slide stones trying to get closest to the center target."
+
+Keep answers friendly, brief, and helpful!"""
 
 
 class GeminiService:
@@ -52,7 +50,7 @@ class GeminiService:
     async def answer_question(
         self, 
         question: str, 
-        transcript_context: List[TranscriptEntry],
+        context_text: str,
         sport_type: str = "Winter Olympics event"
     ) -> str:
         """
@@ -60,24 +58,20 @@ class GeminiService:
         
         Args:
             question: The user's question
-            transcript_context: Recent transcript entries for context
+            context_text: Context about the video (transcript or metadata)
             sport_type: The type of sport being watched
             
         Returns:
             The generated answer text
         """
-        context_text = self.format_transcript_context(transcript_context)
-        
         prompt = f"""{SYSTEM_PROMPT}
 
-CURRENT CONTEXT:
-Sport: {sport_type}
-Recent Commentary Transcript:
+Context: {sport_type}
 {context_text}
 
-USER QUESTION: {question}
+Question: {question}
 
-Please provide a helpful, accessible answer. Remember to avoid visual references and explain things clearly for someone who may not be able to see the video or who is new to this sport."""
+Answer briefly (2-3 sentences max):"""
 
         try:
             response = self.client.models.generate_content(

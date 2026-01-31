@@ -121,7 +121,7 @@ async def load_video(request: VideoLoadRequest):
     elif is_live:
         message = "Live stream detected. Transcript will be generated in real-time."
     else:
-        message = "No captions available. Some features may be limited."
+        message = "No captions available. Using video title and description for context."
     
     return VideoLoadResponse(
         video_id=video_id,
@@ -138,22 +138,28 @@ async def ask_question(request: QuestionRequest):
     Process a user question about the current video.
     
     This endpoint:
-    1. Retrieves relevant transcript context based on playback time
+    1. Retrieves relevant context (transcript or video metadata)
     2. Uses Gemini to generate an accessibility-friendly answer
     3. Converts the answer to speech using ElevenLabs
     4. Returns both text and audio response
     """
-    # Get transcript context around the current playback position
+    # Get context - uses transcript if available, falls back to video metadata
+    context_text = YouTubeService.get_context_text(
+        request.video_id,
+        request.playback_time
+    )
+    
+    # Get transcript for response (may be empty)
     transcript_context = YouTubeService.get_transcript_window(
         request.video_id,
         request.playback_time,
         TRANSCRIPT_WINDOW_SECONDS
     )
     
-    # Generate answer using Gemini
+    # Generate answer using Gemini with context (transcript or metadata)
     answer = await gemini_service.answer_question(
         question=request.question,
-        transcript_context=transcript_context,
+        context_text=context_text,
         sport_type="Winter Olympics event"
     )
     
@@ -284,19 +290,19 @@ async def websocket_events(websocket: WebSocket):
                 )
                 
                 try:
-                    # Get transcript context
+                    # Get context (transcript or video metadata)
                     video_id = event_data.get("video_id", "")
                     playback_time = event_data.get("playback_time", 0)
                     question = event_data.get("question", "")
                     
-                    transcript_context = YouTubeService.get_transcript_window(
-                        video_id, playback_time, TRANSCRIPT_WINDOW_SECONDS
+                    context_text = YouTubeService.get_context_text(
+                        video_id, playback_time
                     )
                     
                     # Generate answer
                     answer = await gemini_service.answer_question(
                         question=question,
-                        transcript_context=transcript_context
+                        context_text=context_text
                     )
                     
                     # Generate audio
