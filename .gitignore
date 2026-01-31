@@ -1,6 +1,9 @@
 # Created by https://www.toptal.com/developers/gitignore/api/python,macos,nextjs,react,dotenv,windows
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,macos,nextjs,react,dotenv,windows
 
+# API Keys
+backend/key.env
+
 ### dotenv ###
 .env
 
