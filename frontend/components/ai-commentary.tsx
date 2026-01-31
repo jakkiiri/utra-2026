@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef, useEffect } from "react"
 import { Sparkles, History } from "lucide-react"
 
 export interface CommentaryItem {
@@ -25,6 +26,20 @@ interface AICommentaryProps {
 }
 
 export function AICommentary({ items, isLive }: AICommentaryProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const prevItemsLengthRef = useRef(items.length)
+
+  // Auto-scroll to top when new items are added (since newest items are at the top)
+  useEffect(() => {
+    if (items.length > prevItemsLengthRef.current && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      })
+    }
+    prevItemsLengthRef.current = items.length
+  }, [items.length])
+
   return (
     <aside className="w-full lg:w-96 flex flex-col gap-3 lg:gap-4">
       {/* Header */}
@@ -41,8 +56,14 @@ export function AICommentary({ items, isLive }: AICommentaryProps) {
         </div>
       </div>
 
-      {/* Commentary Feed */}
-      <div className="flex-1 overflow-y-auto space-y-3 lg:space-y-4 custom-scrollbar pr-2 max-h-[400px] lg:max-h-none">
+      {/* Commentary Feed - Auto-scrolls to show newest items at top */}
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto space-y-3 lg:space-y-4 custom-scrollbar pr-2 max-h-[400px] lg:max-h-[60vh]"
+        role="log"
+        aria-live="polite"
+        aria-label="AI Commentary feed"
+      >
         {items.map((item) => (
           <CommentaryCard key={item.id} item={item} />
         ))}

@@ -6,256 +6,366 @@ import { EventSidebar } from "@/components/event-sidebar"
 import { AICommentary, type CommentaryItem } from "@/components/ai-commentary"
 import { AIChatInput } from "@/components/ai-chat-input"
 import { VideoPlayer } from "@/components/video-player"
-
-// Simulated narration phrases for demo
-const NARRATION_PHRASES = [
-  "The skater glides gracefully across the ice, preparing for the next element.",
-  "A beautiful triple axel! The crowd erupts in applause.",
-  "Moving into the footwork sequence now, showing incredible edge control.",
-  "The music swells as she approaches center ice for the combination spin.",
-  "Flawless execution on that jump. The technical panel will be pleased.",
-  "She's maintaining excellent posture throughout this challenging choreography.",
-  "The spiral sequence showcases her flexibility and artistry.",
-  "A slight wobble on the landing, but she recovers beautifully.",
-  "The performance is building to its climactic finale.",
-  "What a stunning layback spin to close out this remarkable program!"
-]
-
-// Simulated AI responses for Q&A
-const AI_RESPONSES: Record<string, string> = {
-  "technical rules": "In figure skating, the Technical Element Score (TES) is calculated by adding the base values of each element performed, plus Grade of Execution (GOE) adjustments. Elements include jumps, spins, step sequences, and lifts. Each element has a specific base value, and judges can add or subtract up to 5 points based on quality.",
-  "athlete bio": "The current skater is a two-time World Championship medalist, known for her exceptional artistry and technical prowess. She began skating at age 4 and has won 15 international medals throughout her career. Her signature move is the triple-triple combination jump.",
-  "medal history": "This event has been part of the Olympics since 1908. Notable champions include Sonja Henie (3 gold medals), Katarina Witt (2 golds), and Yuna Kim (gold in 2010). The current record for highest score in the free skate is 158.44 points.",
-  "compare stats": "Current performance is tracking 6.2% above the skater's season average. Her jump success rate today is 94% compared to her typical 89%. The artistic components are scoring 0.8 points higher than her personal best.",
-  "score": "The current score projection is 84.25 TES with an estimated 74.5 PCS, for a total of approximately 158.75 points.",
-  "who": "The current performer is representing her national federation in the Women's Free Skate event. She is the reigning national champion and a strong medal contender.",
-  "default": "Based on my analysis of the current performance, I'm seeing excellent technical execution and strong artistic interpretation. The skater is performing at a very high level today."
-}
+import { VideoUrlInput } from "@/components/video-url-input"
+import { 
+  askQuestion, 
+  VideoLoadResponse, 
+  wsClient, 
+  WebSocketMessage 
+} from "@/lib/api"
 
 export default function SportsNarratorPage() {
+  // Video state
+  const [videoId, setVideoId] = useState<string | null>(null)
+  const [isLive, setIsLive] = useState(false)
+  
+  // Playback state
   const [isPlaying, setIsPlaying] = useState(false)
-  const [isNarrating, setIsNarrating] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [shouldPause, setShouldPause] = useState(false)
+  
+  // AI state
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isNarrating, setIsNarrating] = useState(false)
+  
+  // Commentary feed
   const [commentary, setCommentary] = useState<CommentaryItem[]>([
     {
       id: '1',
-      type: 'market_shift',
-      timestamp: '12:08:45',
-      content: 'Gold probability spiked after that Triple Axel. Execution score is currently trending at',
-      highlight: { value: '94.1%', label: 'accuracy.' }
-    },
-    {
-      id: '2',
-      type: 'historical',
-      timestamp: '12:07:20',
-      title: 'Versus 2018 Pace',
-      content: '',
-      comparison: {
-        current: 84.25,
-        record: 78.30,
-        note: 'Pacing 5.95 points above the 2010 Olympic baseline.'
-      }
-    },
-    {
-      id: '3',
       type: 'analysis',
-      timestamp: '12:06:10',
-      content: 'The artistic components are showing remarkable depth. We\'re seeing scores that could potentially set a new personal season best.'
+      timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+      content: 'Welcome to WinterStream AI! Paste a YouTube video URL above to get started. I\'ll help you understand what\'s happening in the event.'
     }
   ])
 
-  const [eventData] = useState({
-    eventName: "Figure Skating",
-    eventSubtitle: "Women's Free",
-    venue: "Beijing Capital Stadium",
-    isLive: true,
-    winProbability: 74.2,
-    probabilityChange: 2.4,
-    technicalScore: 84.25,
-    riskWarning: {
-      title: "Upcoming Risk",
-      description: "Triple Lutz-Triple Toe combination approaching. AI predicts a ",
-      probability: 12
-    }
+  // Event data (can be updated based on video metadata)
+  const [eventData, setEventData] = useState({
+    eventName: "Winter Olympics",
+    eventSubtitle: "Event",
+    venue: "Loading...",
+    isLive: false,
+    winProbability: 0,
+    probabilityChange: 0,
+    technicalScore: 0,
+    riskWarning: undefined as { title: string; description: string; probability: number } | undefined
   })
 
-  const narrationIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null)
+  // Audio playback ref - connected to DOM audio element
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // Text-to-speech for narration
-  const speak = useCallback((text: string) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel()
+  // WebSocket connection
+  useEffect(() => {
+    wsClient.connect().catch(console.error)
+
+    // Handle WebSocket events
+    const handleAudioResponse = (message: WebSocketMessage) => {
+      const data = message.data as { answer?: string; audio_base64?: string; audio_url?: string }
       
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 0.95
-      utterance.pitch = 1
-      utterance.volume = 0.8
+      if (data.answer) {
+        // Add AI response to commentary
+        const aiItem: CommentaryItem = {
+          id: `ai-${Date.now()}`,
+          type: 'analysis',
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+          content: data.answer
+        }
+        setCommentary(prev => [aiItem, ...prev.slice(0, 9)])
+      }
+
+      // Play audio response if available
+      if (data.audio_base64) {
+        playAudioBase64(data.audio_base64)
+      } else if (data.audio_url) {
+        playAudioUrl(data.audio_url)
+      }
+
+      setIsNarrating(false)
+      setIsProcessing(false)
+    }
+
+    const handlePauseVideo = () => {
+      setShouldPause(true)
+      // Reset after a short delay
+      setTimeout(() => setShouldPause(false), 100)
+    }
+
+    const handleProcessingStart = () => {
+      setIsProcessing(true)
+      setIsNarrating(true)
+    }
+
+    const handleProcessingComplete = () => {
+      setIsProcessing(false)
+    }
+
+    const handleError = (message: WebSocketMessage) => {
+      const data = message.data as { message?: string }
+      console.error('WebSocket error:', data.message)
       
-      // Try to find a good voice
-      const voices = window.speechSynthesis.getVoices()
-      const preferredVoice = voices.find(v => 
-        v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Samantha')
-      )
-      if (preferredVoice) {
-        utterance.voice = preferredVoice
+      const errorItem: CommentaryItem = {
+        id: `error-${Date.now()}`,
+        type: 'analysis',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        content: `I encountered an issue: ${data.message || 'Unknown error'}. Please try again.`
+      }
+      setCommentary(prev => [errorItem, ...prev.slice(0, 9)])
+      setIsProcessing(false)
+      setIsNarrating(false)
+    }
+
+    wsClient.on('AUDIO_RESPONSE', handleAudioResponse)
+    wsClient.on('PAUSE_VIDEO', handlePauseVideo)
+    wsClient.on('PROCESSING_START', handleProcessingStart)
+    wsClient.on('PROCESSING_COMPLETE', handleProcessingComplete)
+    wsClient.on('ERROR', handleError)
+
+    return () => {
+      wsClient.off('AUDIO_RESPONSE', handleAudioResponse)
+      wsClient.off('PAUSE_VIDEO', handlePauseVideo)
+      wsClient.off('PROCESSING_START', handleProcessingStart)
+      wsClient.off('PROCESSING_COMPLETE', handleProcessingComplete)
+      wsClient.off('ERROR', handleError)
+      wsClient.disconnect()
+    }
+  }, [])
+
+  // Audio playback helpers
+  const playAudioBase64 = (base64Data: string) => {
+    try {
+      const audioBlob = base64ToBlob(base64Data, 'audio/mpeg')
+      const audioUrl = URL.createObjectURL(audioBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.pause()
       }
       
-      speechSynthesisRef.current = utterance
-      window.speechSynthesis.speak(utterance)
+      audioRef.current = new Audio(audioUrl)
+      audioRef.current.play().catch(console.error)
+      
+      audioRef.current.onended = () => {
+        URL.revokeObjectURL(audioUrl)
+      }
+    } catch (error) {
+      console.error('Failed to play audio:', error)
     }
+  }
+
+  const playAudioUrl = (url: string) => {
+    console.log('Playing audio from URL:', url)
+    
+    // Construct full URL if relative
+    const fullUrl = url.startsWith('http') ? url : `http://localhost:8000${url}`
+    console.log('Full audio URL:', fullUrl)
+    
+    // Use the DOM audio element for better browser compatibility
+    if (audioRef.current) {
+      audioRef.current.src = fullUrl
+      audioRef.current.load()
+      
+      audioRef.current.play()
+        .then(() => console.log('Audio playing successfully'))
+        .catch((error) => {
+          console.error('Audio play failed:', error)
+          // Some browsers block autoplay - show a message
+          if (error.name === 'NotAllowedError') {
+            console.log('Autoplay blocked by browser. User interaction required.')
+          }
+        })
+    } else {
+      console.error('Audio element not found')
+    }
+  }
+
+  const base64ToBlob = (base64: string, mimeType: string): Blob => {
+    const byteCharacters = atob(base64)
+    const byteNumbers = new Array(byteCharacters.length)
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i)
+    }
+    const byteArray = new Uint8Array(byteNumbers)
+    return new Blob([byteArray], { type: mimeType })
+  }
+
+  // Handle video load
+  const handleVideoLoaded = useCallback((response: VideoLoadResponse) => {
+    setVideoId(response.video_id)
+    setIsLive(response.is_live)
+
+    // Update event data
+    setEventData(prev => ({
+      ...prev,
+      eventName: response.title.split('-')[0]?.trim() || "Winter Olympics",
+      eventSubtitle: response.title.split('-')[1]?.trim() || "Event",
+      venue: response.is_live ? "Live Broadcast" : "Recorded Event",
+      isLive: response.is_live
+    }))
+
+    // Add status message to commentary
+    const statusItem: CommentaryItem = {
+      id: `status-${Date.now()}`,
+      type: 'market_shift',
+      timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+      content: response.message,
+      highlight: response.has_captions 
+        ? { value: 'Captions Available', label: '' }
+        : undefined
+    }
+    setCommentary(prev => [statusItem, ...prev.slice(0, 9)])
   }, [])
 
   // Handle play state changes
   const handlePlayStateChange = useCallback((playing: boolean) => {
     setIsPlaying(playing)
-    
-    if (playing) {
-      // Start narration cycle
-      setIsNarrating(true)
-      
-      // Immediate first narration
-      const firstPhrase = NARRATION_PHRASES[Math.floor(Math.random() * NARRATION_PHRASES.length)]
-      speak(firstPhrase)
-      
-      // Add to commentary
-      const newItem: CommentaryItem = {
-        id: Date.now().toString(),
-        type: 'narration',
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-        content: firstPhrase
-      }
-      setCommentary(prev => [newItem, ...prev])
-      
-      // Continue narrating every 8-15 seconds
-      narrationIntervalRef.current = setInterval(() => {
-        const phrase = NARRATION_PHRASES[Math.floor(Math.random() * NARRATION_PHRASES.length)]
-        speak(phrase)
-        
-        const item: CommentaryItem = {
-          id: Date.now().toString(),
-          type: 'narration',
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-          content: phrase
-        }
-        setCommentary(prev => [item, ...prev.slice(0, 9)])
-      }, 8000 + Math.random() * 7000)
-      
-    } else {
-      // Stop narration
-      setIsNarrating(false)
-      if (narrationIntervalRef.current) {
-        clearInterval(narrationIntervalRef.current)
-        narrationIntervalRef.current = null
-      }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel()
-      }
-    }
-  }, [speak])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (narrationIntervalRef.current) {
-        clearInterval(narrationIntervalRef.current)
-      }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel()
-      }
-    }
   }, [])
 
-  // Handle user questions
-  const handleSendMessage = useCallback((message: string) => {
-    setIsProcessing(true)
+  // Handle time updates from video player
+  const handleTimeUpdate = useCallback((time: number) => {
+    setCurrentTime(time)
     
-    // Pause narration briefly to respond
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel()
+    // Send playback update to backend (throttled)
+    if (videoId && Math.floor(time) % 5 === 0) {
+      wsClient.sendPlaybackUpdate(videoId, time)
     }
-    
-    // Simulate AI processing time
-    setTimeout(() => {
-      // Find matching response based on keywords
-      const lowerMessage = message.toLowerCase()
-      let response = AI_RESPONSES.default
-      
-      if (lowerMessage.includes('rule') || lowerMessage.includes('technical')) {
-        response = AI_RESPONSES['technical rules']
-      } else if (lowerMessage.includes('athlete') || lowerMessage.includes('bio') || lowerMessage.includes('background')) {
-        response = AI_RESPONSES['athlete bio']
-      } else if (lowerMessage.includes('medal') || lowerMessage.includes('history')) {
-        response = AI_RESPONSES['medal history']
-      } else if (lowerMessage.includes('compare') || lowerMessage.includes('stat')) {
-        response = AI_RESPONSES['compare stats']
-      } else if (lowerMessage.includes('score') || lowerMessage.includes('point')) {
-        response = AI_RESPONSES.score
-      } else if (lowerMessage.includes('who')) {
-        response = AI_RESPONSES.who
-      }
-      
-      // Speak the response
-      speak(response)
-      
-      // Add user question and AI response to commentary
-      const userItem: CommentaryItem = {
-        id: `user-${Date.now()}`,
+  }, [videoId])
+
+  // Handle user questions via REST API
+  const handleSendMessage = useCallback(async (message: string) => {
+    if (!videoId) {
+      // No video loaded - provide helpful message
+      const helpItem: CommentaryItem = {
+        id: `help-${Date.now()}`,
         type: 'analysis',
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-        content: `User asked: "${message}"`
+        content: 'Please load a YouTube video first by pasting the URL above. Then I can answer your questions about what\'s happening in the event!'
       }
-      
+      setCommentary(prev => [helpItem, ...prev.slice(0, 9)])
+      return
+    }
+
+    setIsProcessing(true)
+    setIsNarrating(true)
+
+    // Add user question to commentary
+    const userItem: CommentaryItem = {
+      id: `user-${Date.now()}`,
+      type: 'analysis',
+      timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+      content: `You asked: "${message}"`
+    }
+    setCommentary(prev => [userItem, ...prev.slice(0, 9)])
+
+    try {
+      // Use REST API for question (more reliable than WebSocket for this)
+      const response = await askQuestion(message, videoId, currentTime, isLive)
+
+      // Add AI response to commentary
       const aiItem: CommentaryItem = {
         id: `ai-${Date.now()}`,
         type: 'analysis',
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-        content: response
+        content: response.answer
       }
-      
-      setCommentary(prev => [aiItem, userItem, ...prev.slice(0, 7)])
-      setIsProcessing(false)
-    }, 1500)
-  }, [speak])
+      setCommentary(prev => [aiItem, ...prev.slice(0, 8)])
 
-  // Handle voice input (same as text for now)
+      // Play audio response
+      if (response.audio_url) {
+        playAudioUrl(response.audio_url)
+      }
+    } catch (error) {
+      console.error('Failed to get answer:', error)
+      
+      const errorItem: CommentaryItem = {
+        id: `error-${Date.now()}`,
+        type: 'analysis',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        content: 'I\'m having trouble answering right now. Please try again in a moment.'
+      }
+      setCommentary(prev => [errorItem, ...prev.slice(0, 9)])
+    } finally {
+      setIsProcessing(false)
+      setIsNarrating(false)
+    }
+  }, [videoId, currentTime, isLive])
+
+  // Handle voice input with auto-pause
   const handleVoiceInput = useCallback((transcript: string) => {
-    // Auto-submit voice input
+    // Voice was detected and transcribed - pause the video
+    setShouldPause(true)
+    setTimeout(() => setShouldPause(false), 100)
+    
+    // Notify backend about voice detection
+    wsClient.sendVoiceDetected()
+    
+    // Submit the question
     handleSendMessage(transcript)
   }, [handleSendMessage])
 
+  // Handle when user starts speaking (before transcription)
+  const handleVoiceStart = useCallback(() => {
+    // Pause video immediately when voice is detected
+    setShouldPause(true)
+    setTimeout(() => setShouldPause(false), 100)
+    wsClient.sendVoiceDetected()
+  }, [])
+
   return (
     <div className="bg-black font-sans text-white min-h-screen flex flex-col overflow-hidden relative">
+      {/* Hidden audio element for TTS playback */}
+      <audio ref={audioRef} className="hidden" />
+
       {/* Video Background with Controls */}
       <VideoPlayer 
+        videoId={videoId || undefined}
         onPlayStateChange={handlePlayStateChange}
+        onTimeUpdate={handleTimeUpdate}
         isNarrating={isNarrating}
+        externalPause={shouldPause}
       />
 
       {/* Header */}
       <StreamHeader />
 
-      {/* Main Content */}
-      <main className="relative z-10 flex-1 flex flex-col lg:flex-row px-4 lg:px-12 pt-20 lg:pt-28 pb-40 lg:pb-32 gap-4 lg:gap-8 h-full overflow-y-auto">
+      {/* Main Content - pointer-events-none to allow clicking video, children have pointer-events-auto */}
+      <main className="relative z-10 flex-1 flex flex-col lg:flex-row px-4 lg:px-12 pt-20 lg:pt-28 pb-40 lg:pb-32 gap-4 lg:gap-8 h-full overflow-y-auto pointer-events-none">
         {/* Left Sidebar - Event Info */}
-        <EventSidebar {...eventData} />
-
-        {/* Center - Video Area (handled by VideoPlayer component) */}
-        <div className="hidden lg:flex flex-1 items-center justify-center pointer-events-none">
-          {/* Play button is rendered by VideoPlayer */}
+        <div className="pointer-events-auto">
+          <EventSidebar {...eventData} />
         </div>
 
+        {/* Center spacer */}
+        <div className="hidden lg:flex flex-1" />
+
         {/* Right Sidebar - AI Commentary */}
-        <AICommentary items={commentary} isLive={isPlaying} />
+        <div className="pointer-events-auto">
+          <AICommentary items={commentary} isLive={isPlaying} />
+        </div>
       </main>
+
+      {/* Video URL Input - Fixed at top below header (shown when no video) */}
+      {!videoId && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-40">
+          <VideoUrlInput 
+            onVideoLoaded={handleVideoLoaded}
+            disabled={isProcessing}
+          />
+        </div>
+      )}
 
       {/* AI Chat Input */}
       <AIChatInput 
         onSendMessage={handleSendMessage}
         onVoiceInput={handleVoiceInput}
         isProcessing={isProcessing}
+        placeholder={videoId 
+          ? "Ask about the event, rules, athletes, or what's happening..." 
+          : "Load a video first, then ask questions..."}
       />
+
+      {/* Accessibility: Screen reader announcements */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {isProcessing && "AI is processing your question..."}
+        {isNarrating && "AI is responding..."}
+      </div>
     </div>
   )
 }
