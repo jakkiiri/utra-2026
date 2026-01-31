@@ -1,0 +1,129 @@
+"use client"
+
+import { Sparkles, History } from "lucide-react"
+
+export interface CommentaryItem {
+  id: string
+  type: 'market_shift' | 'historical' | 'analysis' | 'narration'
+  timestamp: string
+  title?: string
+  content: string
+  highlight?: {
+    value: string
+    label?: string
+  }
+  comparison?: {
+    current: number
+    record: number
+    note: string
+  }
+}
+
+interface AICommentaryProps {
+  items: CommentaryItem[]
+  isLive: boolean
+}
+
+export function AICommentary({ items, isLive }: AICommentaryProps) {
+  return (
+    <aside className="w-full lg:w-96 flex flex-col gap-3 lg:gap-4">
+      {/* Header */}
+      <div className="glass-overlay lavender-glow p-4 lg:p-5 rounded-2xl lg:rounded-3xl flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Sparkles className="size-4 lg:size-5 text-lavender-400 fill-lavender-400" />
+          <h2 className="text-xs lg:text-sm font-bold tracking-wide text-white">AI COMMENTARY</h2>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`size-1.5 rounded-full ${isLive ? 'bg-emerald-400' : 'bg-white/40'}`} />
+          <span className={`text-[10px] font-bold uppercase ${isLive ? 'text-emerald-400' : 'text-white/40'}`}>
+            {isLive ? 'Live' : 'Paused'}
+          </span>
+        </div>
+      </div>
+
+      {/* Commentary Feed */}
+      <div className="flex-1 overflow-y-auto space-y-3 lg:space-y-4 custom-scrollbar pr-2 max-h-[400px] lg:max-h-none">
+        {items.map((item) => (
+          <CommentaryCard key={item.id} item={item} />
+        ))}
+      </div>
+    </aside>
+  )
+}
+
+function CommentaryCard({ item }: { item: CommentaryItem }) {
+  if (item.type === 'market_shift') {
+    return (
+      <div className="glass-overlay p-4 lg:p-6 rounded-2xl lg:rounded-3xl border-l-4 border-l-emerald-400/50">
+        <div className="flex justify-between items-center mb-2 lg:mb-3">
+          <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest">
+            Market Shift
+          </span>
+          <span className="text-[10px] text-white/40">{item.timestamp}</span>
+        </div>
+        <p className="text-sm text-white/90 leading-relaxed">
+          {item.content}
+          {item.highlight && (
+            <span className="text-emerald-400 font-bold"> {item.highlight.value}</span>
+          )}
+          {item.highlight?.label && ` ${item.highlight.label}`}
+        </p>
+      </div>
+    )
+  }
+
+  if (item.type === 'historical' && item.comparison) {
+    return (
+      <div className="glass-overlay p-4 lg:p-6 rounded-2xl lg:rounded-3xl">
+        <div className="flex items-center gap-3 mb-3 lg:mb-4">
+          <div className="size-8 lg:size-9 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+            <History className="size-4 lg:size-5 text-lavender-300" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+              Historical context
+            </p>
+            <h4 className="text-sm font-bold text-white">{item.title}</h4>
+          </div>
+        </div>
+        <div className="flex justify-between items-end border-b border-white/10 pb-3 mb-3">
+          <div>
+            <p className="text-[10px] text-white/40 mb-1">Current</p>
+            <p className="text-xl font-bold text-lavender-300">{item.comparison.current.toFixed(2)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-white/40 mb-1">Record</p>
+            <p className="text-xl font-bold text-white/20">{item.comparison.record.toFixed(2)}</p>
+          </div>
+        </div>
+        <p className="text-[11px] italic text-white/50">{`"${item.comparison.note}"`}</p>
+      </div>
+    )
+  }
+
+  if (item.type === 'analysis') {
+    return (
+      <div className="glass-overlay p-4 lg:p-6 rounded-2xl lg:rounded-3xl">
+        <p className="text-[10px] font-bold text-lavender-300 uppercase tracking-widest mb-2 lg:mb-3">
+          Analyst AI
+        </p>
+        <p className="text-sm leading-relaxed text-white/80">
+          {`"${item.content}"`}
+        </p>
+      </div>
+    )
+  }
+
+  // Default narration type
+  return (
+    <div className="glass-overlay p-4 lg:p-6 rounded-2xl lg:rounded-3xl border-l-4 border-l-lavender-400/50">
+      <div className="flex justify-between items-center mb-2 lg:mb-3">
+        <span className="text-[10px] font-bold text-lavender-300 uppercase tracking-widest">
+          Live Narration
+        </span>
+        <span className="text-[10px] text-white/40">{item.timestamp}</span>
+      </div>
+      <p className="text-sm text-white/90 leading-relaxed">{item.content}</p>
+    </div>
+  )
+}
