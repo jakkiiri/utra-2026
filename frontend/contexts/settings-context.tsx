@@ -25,7 +25,7 @@ export interface Settings {
 
 const defaultSettings: Settings = {
   autoPauseOnVoice: true,
-  volumeDuckingPercent: 15,
+  volumeDuckingPercent: 5,  // Lower to 5% for more drastic volume reduction during voice input
   showTimerDuringPlayback: false,
   voiceResponseEnabled: true,
   autoSubmitVoice: true,

@@ -3,14 +3,18 @@
 import React, { useState, useRef, useEffect, useCallback } from "react"
 import { MessageSquare, Wand2, Mic, MicOff, Loader2, ChevronUp, ChevronDown } from "lucide-react"
 import { useSettings } from "@/contexts/settings-context"
+import { VoiceWaveform } from "./voice-waveform"
 
 interface AIChatInputProps {
   onSendMessage: (message: string) => void
   onVoiceInput?: (transcript: string) => void
   onVoiceStart?: () => void  // Called when voice detection starts
   onListeningChange?: (isListening: boolean) => void  // Track listening state
+  onInterimTranscript?: (transcript: string) => void  // Real-time interim transcript
   isProcessing?: boolean
   placeholder?: string
+  triggerDictation?: boolean  // External trigger to start dictation (from wake word or other)
+  onDictationTriggered?: () => void  // Callback when dictation starts from external trigger
 }
 
 export function AIChatInput({
@@ -18,8 +22,11 @@ export function AIChatInput({
   onVoiceInput,
   onVoiceStart,
   onListeningChange,
+  onInterimTranscript,
   isProcessing = false,
-  placeholder = "Ask AI about historical comparisons or live stats..."
+  placeholder = "Ask AI about historical comparisons or live stats...",
+  triggerDictation = false,
+  onDictationTriggered
 }: AIChatInputProps) {
   const { settings } = useSettings()
   const [message, setMessage] = useState("")
@@ -56,6 +63,11 @@ export function AIChatInput({
         }
 
         setInterimTranscript(interim)
+
+        // Send interim transcript to parent for live display
+        if (interim && onInterimTranscript) {
+          onInterimTranscript(interim)
+        }
 
         if (finalTranscript) {
           setInterimTranscript("")
@@ -101,13 +113,27 @@ export function AIChatInput({
         recognitionRef.current.abort()
       }
     }
-  }, [onVoiceInput, onVoiceStart])
+  }, [onVoiceInput, onVoiceStart, onInterimTranscript, settings.autoSubmitVoice])
 
   // Notify parent of listening state changes
   useEffect(() => {
     console.log('Voice listening state changed:', isListening)
     onListeningChange?.(isListening)
   }, [isListening, onListeningChange])
+
+  // Handle external dictation trigger (from wake word)
+  useEffect(() => {
+    if (triggerDictation && !isListening && recognitionRef.current) {
+      console.log('🎤 External dictation trigger received, starting recognition')
+      try {
+        recognitionRef.current.start()
+        setIsListening(true)
+        onDictationTriggered?.()
+      } catch (error) {
+        console.error('Failed to start dictation from external trigger:', error)
+      }
+    }
+  }, [triggerDictation, isListening, onDictationTriggered])
 
   const toggleVoiceInput = useCallback(() => {
     if (!recognitionRef.current) {
@@ -173,38 +199,50 @@ export function AIChatInput({
         </button>
         
         <div className="flex-1 flex items-center gap-2 lg:gap-3 px-2 lg:px-3">
-          <MessageSquare className="size-4 lg:size-5 text-lavender-300 flex-shrink-0" aria-hidden="true" />
-          <div className="w-full relative">
-            <input 
-              type="text"
-              value={isListening ? interimTranscript || message : message}
-              onChange={(e) => setMessage(e.target.value)}
-              className="w-full bg-transparent border-none text-white placeholder-white/40 focus:ring-0 focus:outline-none text-sm py-2 lg:py-3"
-              placeholder={isListening ? "Listening..." : placeholder}
-              disabled={isProcessing || isListening}
-              aria-label="Ask the AI a question"
-            />
-          </div>
+          {isListening ? (
+            // Show purple waveform when dictating (manual or wake word triggered)
+            <div className="w-full flex flex-col items-center justify-center py-1">
+              <VoiceWaveform
+                isActive={true}
+                mode="dictation"
+              />
+              <p className="text-xs text-white/60 mt-1">
+                Listening...
+              </p>
+            </div>
+          ) : (
+            // Show normal input
+            <>
+              <MessageSquare className="size-4 lg:size-5 text-lavender-300 flex-shrink-0" aria-hidden="true" />
+              <div className="w-full relative">
+                <input
+                  type="text"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  className="w-full bg-transparent border-none text-white placeholder-white/40 focus:ring-0 focus:outline-none text-sm py-2 lg:py-3"
+                  placeholder={placeholder}
+                  disabled={isProcessing}
+                  aria-label="Ask the AI a question"
+                />
+              </div>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1 lg:gap-2 pr-1 lg:pr-2">
           {/* Voice Input Button */}
-          <button 
+          <button
             type="button"
             onClick={toggleVoiceInput}
             disabled={isProcessing}
             className={`size-9 lg:size-11 rounded-lg lg:rounded-xl flex items-center justify-center transition-all ${
-              isListening 
-                ? 'bg-red-500 text-white animate-pulse' 
+              isListening
+                ? 'bg-lavender-500 text-white animate-pulse'
                 : 'hover:bg-white/5 text-white/60 hover:text-white'
             } disabled:opacity-50`}
             aria-label={isListening ? "Stop listening" : "Start voice input"}
             aria-pressed={isListening}
           >
-            {isListening ? (
-              <MicOff className="size-4 lg:size-5" />
-            ) : (
-              <Mic className="size-4 lg:size-5" />
-            )}
+            <Mic className="size-4 lg:size-5" />
           </button>
           
           <button 

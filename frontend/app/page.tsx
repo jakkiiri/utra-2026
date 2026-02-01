@@ -8,6 +8,7 @@ import { AIChatInput } from "@/components/ai-chat-input"
 import { VideoPlayer } from "@/components/video-player"
 import { VideoUrlInput } from "@/components/video-url-input"
 import { SuggestedPrompts } from "@/components/suggested-prompts"
+import { WakeWordListener } from "@/components/wake-word-listener"
 import {
   askQuestion,
   VideoLoadResponse,
@@ -40,6 +41,7 @@ export default function SportsNarratorPage() {
   const [isNarrating, setIsNarrating] = useState(false)
   const [isListeningToVoice, setIsListeningToVoice] = useState(false)
   const [isPlayingAIAudio, setIsPlayingAIAudio] = useState(false)
+  const [triggerDictation, setTriggerDictation] = useState(false)
 
   // Screen capture state
   const [screenCaptureActive, setScreenCaptureActive] = useState(false)
@@ -61,8 +63,8 @@ export default function SportsNarratorPage() {
     eventSubtitle: "Event",
     venue: "Loading...",
     isLive: false,
-    winProbability: 0,
-    probabilityChange: 0,
+    winProbability: 78,
+    probabilityChange: 3,
     technicalScore: 0,
     riskWarning: undefined as { title: string; description: string; probability: number } | undefined
   })
@@ -347,14 +349,7 @@ export default function SportsNarratorPage() {
     setIsProcessing(true)
     setIsNarrating(true)
 
-    // Add user question to commentary
-    const userItem: CommentaryItem = {
-      id: `user-${Date.now()}`,
-      type: 'analysis',
-      timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-      content: `You asked: "${message}"`
-    }
-    setCommentary(prev => [userItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
+    // Don't add user question to commentary - only show AI responses and pushed cards
 
     try {
       // Capture screenshot from persistent stream if active
@@ -412,26 +407,93 @@ export default function SportsNarratorPage() {
     }
   }, [videoId, currentTime, isLive])
 
+  // Convert live dictation to persistent user question card
+  const persistDictation = useCallback((finalTranscript: string) => {
+    setCommentary(prev => {
+      const withoutLive = prev.filter(item => item.id !== 'live-dictation')
+      const userQuestionCard: CommentaryItem = {
+        id: `user-${Date.now()}`,
+        type: 'user_question',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        content: finalTranscript
+      }
+      return [userQuestionCard, ...withoutLive.slice(0, settings.maxCommentaryItems - 1)]
+    })
+  }, [settings.maxCommentaryItems])
+
+  // Remove live dictation card when voice input stops without completion
+  const removeLiveDictation = useCallback(() => {
+    setCommentary(prev => prev.filter(item => item.id !== 'live-dictation'))
+  }, [])
+
+  // Handle live interim transcript during dictation
+  const handleInterimTranscript = useCallback((transcript: string) => {
+    const liveItem: CommentaryItem = {
+      id: 'live-dictation',
+      type: 'live_dictation',
+      timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+      content: transcript
+    }
+
+    // Update or add live dictation card
+    setCommentary(prev => {
+      const withoutLive = prev.filter(item => item.id !== 'live-dictation')
+      return [liveItem, ...withoutLive]
+    })
+  }, [])
+
+  // Handle listening state change
+  const handleListeningChange = useCallback((isListening: boolean) => {
+    setIsListeningToVoice(isListening)
+    // Remove live dictation card when listening stops
+    if (!isListening) {
+      removeLiveDictation()
+    }
+  }, [removeLiveDictation])
+
   // Handle voice input with auto-pause
   const handleVoiceInput = useCallback((transcript: string) => {
+    // Persist the dictation as a user question card
+    persistDictation(transcript)
+
     // Voice was detected and transcribed - pause the video
     setShouldPause(true)
     setTimeout(() => setShouldPause(false), 100)
-    
+
     // Notify backend about voice detection
     wsClient.sendVoiceDetected()
-    
+
     // Submit the question
     handleSendMessage(transcript)
-  }, [handleSendMessage])
+  }, [handleSendMessage, persistDictation])
 
-  // Handle when user starts speaking (before transcription)
-  const handleVoiceStart = useCallback(() => {
-    // Pause video immediately when voice is detected
-    setShouldPause(true)
-    setTimeout(() => setShouldPause(false), 100)
-    wsClient.sendVoiceDetected()
+  // Start dictation from wake word (hand over control)
+  const handleStartDictationFromWakeWord = useCallback(() => {
+    console.log('🎤 Starting dictation system from wake word')
+    // Trigger the dictation in AIChatInput
+    setTriggerDictation(true)
   }, [])
+
+  // Reset dictation trigger after it's been used
+  const handleDictationTriggered = useCallback(() => {
+    console.log('✅ Dictation successfully triggered')
+    setTriggerDictation(false)
+  }, [])
+
+  // Handle wake word detection - functions exactly like clicking mic button
+  const handleWakeWordDetected = useCallback(() => {
+    console.log('👂 Wake word "Hey Winter" detected - triggering dictation (same as mic button)')
+    // No special UI, just hand over to dictation system
+  }, [])
+
+  // Handle transcript from wake word listener
+  const handleWakeWordTranscript = useCallback((transcript: string) => {
+    console.log('📝 Question after wake word:', transcript)
+    // Persist the dictation as a user question card
+    persistDictation(transcript)
+    // Send the question through the normal flow
+    handleSendMessage(transcript)
+  }, [handleSendMessage, persistDictation])
 
   return (
     <div className="bg-black font-sans text-white min-h-screen flex flex-col overflow-hidden relative">
@@ -457,7 +519,7 @@ export default function SportsNarratorPage() {
         screenCaptureActive ? (
           <div className="fixed top-24 right-4 z-50 bg-green-500/20 backdrop-blur-xl border border-green-500/30 rounded-full px-4 py-2 flex items-center gap-2 text-sm">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-green-100">Screen Capture Active</span>
+           
           </div>
         ) : !showScreenCapturePrompt && (
           <div className="fixed top-24 right-4 z-50 bg-yellow-500/20 backdrop-blur-xl border border-yellow-500/30 rounded-full px-4 py-2 flex items-center gap-2 text-sm cursor-pointer hover:bg-yellow-500/30 transition-colors"
@@ -540,8 +602,11 @@ export default function SportsNarratorPage() {
       <AIChatInput
         onSendMessage={handleSendMessage}
         onVoiceInput={handleVoiceInput}
-        onListeningChange={setIsListeningToVoice}
+        onListeningChange={handleListeningChange}
+        onInterimTranscript={handleInterimTranscript}
         isProcessing={isProcessing}
+        triggerDictation={triggerDictation}
+        onDictationTriggered={handleDictationTriggered}
         placeholder={videoId
           ? "Ask about the event, rules, athletes, or what's happening..."
           : "Load a video first, then ask questions..."}
@@ -552,6 +617,16 @@ export default function SportsNarratorPage() {
         {isProcessing && "AI is processing your question..."}
         {isNarrating && "AI is responding..."}
       </div>
+
+      {/* Wake Word Listener - Voice activated AI */}
+      <WakeWordListener
+        onWakeWordDetected={handleWakeWordDetected}
+        onTranscriptReady={handleWakeWordTranscript}
+        onInterimTranscript={handleInterimTranscript}
+        onStartDictation={handleStartDictationFromWakeWord}
+        enabled={!!videoId && !isProcessing && !isListeningToVoice}
+        isProcessing={isProcessing || isListeningToVoice}
+      />
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { PlayerProfileCard } from "./player-profile-card"
 
 export interface CommentaryItem {
   id: string
-  type: 'market_shift' | 'historical' | 'analysis' | 'narration' | 'player_profile'
+  type: 'market_shift' | 'historical' | 'analysis' | 'narration' | 'player_profile' | 'live_dictation' | 'user_question'
   timestamp: string
   title?: string
   content: string
@@ -154,9 +154,11 @@ function CommentaryCard({ item }: { item: CommentaryItem }) {
   if (item.type === 'analysis') {
     return (
       <div className="glass-overlay p-3 rounded-xl">
-        <p className="text-[9px] font-bold text-lavender-300 uppercase tracking-widest mb-1">
-          AI Response
-        </p>
+        {item.title && (
+          <p className="text-[9px] font-bold text-lavender-300 uppercase tracking-widest mb-1">
+            {item.title}
+          </p>
+        )}
         <p className="text-xs leading-relaxed text-white/80">
           {item.content}
         </p>
@@ -172,6 +174,39 @@ function CommentaryCard({ item }: { item: CommentaryItem }) {
         timestamp={item.timestamp}
         highlight={item.highlight}
       />
+    )
+  }
+
+  if (item.type === 'live_dictation') {
+    return (
+      <div className="glass-overlay p-3 rounded-xl border-l-2 border-l-blue-400/50 animate-pulse">
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-[9px] font-bold text-blue-300 uppercase tracking-widest flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-blue-400 animate-pulse" />
+            You're saying
+          </span>
+          <span className="text-[9px] text-white/40">{item.timestamp}</span>
+        </div>
+        <p className="text-xs text-white/90 leading-relaxed italic">
+          {item.content || "Listening..."}
+        </p>
+      </div>
+    )
+  }
+
+  if (item.type === 'user_question') {
+    return (
+      <div className="glass-overlay p-3 rounded-xl border-l-2 border-l-blue-400/50">
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-[9px] font-bold text-blue-300 uppercase tracking-widest">
+            You asked
+          </span>
+          <span className="text-[9px] text-white/40">{item.timestamp}</span>
+        </div>
+        <p className="text-xs text-white/90 leading-relaxed">
+          "{item.content}"
+        </p>
+      </div>
     )
   }
 

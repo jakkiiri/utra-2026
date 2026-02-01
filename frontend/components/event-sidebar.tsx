@@ -86,7 +86,7 @@ export function EventSidebar({
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold text-white">{winProbability}%</span>
           <span className={`text-xs font-bold flex items-center tracking-tight ${
-            probabilityChange >= 0 ? 'text-emerald-400' : 'text-red-400'
+            probabilityChange >=  0 ? 'text-emerald-400' : 'text-red-400'
           }`}>
             <TrendingUp className="size-3" />
             {probabilityChange >= 0 ? '+' : ''}{probabilityChange}%

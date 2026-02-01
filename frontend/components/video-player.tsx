@@ -12,7 +12,7 @@ interface VideoPlayerProps {
   onTimeUpdate?: (currentTime: number) => void
   isNarrating?: boolean
   externalPause?: boolean // Allow external control to pause
-  voiceInputActive?: boolean // Mute completely during voice input
+  voiceInputActive?: boolean // Lower volume during voice input (so user can still hear context)
   aiSpeaking?: boolean // Lower volume during AI speech
 }
 
@@ -163,20 +163,20 @@ export function VideoPlayer({
     }
   }, [volume, voiceInputActive, aiSpeaking])
 
-  // Handle voice input - MUTE completely
+  // Handle voice input - LOWER volume (not mute) so user can still hear context
   useEffect(() => {
     if (playerRef.current && isReady) {
       if (voiceInputActive) {
-        console.log('Voice input active - muting video')
-        playerRef.current.mute()
+        console.log(`Voice input active - lowering video volume to ${settings.volumeDuckingPercent}%`)
+        playerRef.current.unMute()
+        playerRef.current.setVolume(settings.volumeDuckingPercent) // Lower volume during voice input (same as AI speaking)
       } else if (!isMuted && !aiSpeaking) {
         // Restore full volume when voice input ends (if not AI speaking and user hasn't muted)
         console.log('Voice input ended - restoring volume to', userVolumeRef.current * 100)
-        playerRef.current.unMute()
         playerRef.current.setVolume(userVolumeRef.current * 100)
       }
     }
-  }, [voiceInputActive, isReady, isMuted, aiSpeaking])
+  }, [voiceInputActive, isReady, isMuted, aiSpeaking, settings.volumeDuckingPercent])
 
   // Handle AI speaking - LOWER volume (not mute)
   useEffect(() => {
