@@ -360,16 +360,24 @@ export default function SportsNarratorPage() {
       // Capture screenshot from persistent stream if active
       let screenshot: string | undefined = undefined
 
+      console.log(`🔍 Screen capture check: screenCaptureActive=${screenCaptureActive}, isScreenCaptureActive()=${isScreenCaptureActive()}`)
+
       if (screenCaptureActive && isScreenCaptureActive()) {
         try {
+          console.log('📸 Attempting to capture screenshot from persistent stream...')
           const capturedFrame = await captureFromPersistentStream()
           if (capturedFrame) {
             screenshot = capturedFrame
-            console.log('📸 Using screenshot from persistent screen capture')
+            console.log(`✅ Screenshot captured: ${capturedFrame.length} chars`)
+          } else {
+            console.log('⚠️ Screenshot capture returned null')
           }
         } catch (e) {
           console.log('⚠️ Screenshot capture failed, continuing without:', e)
         }
+      } else {
+        console.log('ℹ️ Screen capture not active - no screenshot will be sent')
+        console.log('   To enable visual context: Click "Enable Screen Capture" button at the top')
       }
 
       // Use REST API for question (more reliable than WebSocket for this)
@@ -444,12 +452,21 @@ export default function SportsNarratorPage() {
       {/* Header */}
       <StreamHeader />
 
-      {/* Screen Capture Active Indicator */}
-      {screenCaptureActive && (
-        <div className="fixed top-24 right-4 z-50 bg-green-500/20 backdrop-blur-xl border border-green-500/30 rounded-full px-4 py-2 flex items-center gap-2 text-sm">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <span className="text-green-100">Screen Capture Active</span>
-        </div>
+      {/* Screen Capture Status Indicator */}
+      {videoId && (
+        screenCaptureActive ? (
+          <div className="fixed top-24 right-4 z-50 bg-green-500/20 backdrop-blur-xl border border-green-500/30 rounded-full px-4 py-2 flex items-center gap-2 text-sm">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+            <span className="text-green-100">Screen Capture Active</span>
+          </div>
+        ) : !showScreenCapturePrompt && (
+          <div className="fixed top-24 right-4 z-50 bg-yellow-500/20 backdrop-blur-xl border border-yellow-500/30 rounded-full px-4 py-2 flex items-center gap-2 text-sm cursor-pointer hover:bg-yellow-500/30 transition-colors"
+               onClick={() => setShowScreenCapturePrompt(true)}>
+            <div className="w-2 h-2 bg-yellow-400 rounded-full" />
+            <span className="text-yellow-100">Visual context disabled</span>
+            <span className="text-yellow-200 text-xs ml-1">(click to enable)</span>
+          </div>
+        )
       )}
 
       {/* Main Content - pointer-events-none to allow clicking video, children have pointer-events-auto */}

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Screen Capture Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #4a9eff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover { background: #357abd; }
+        pre {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        img {
+            border: 2px solid #44ff44;
+            margin: 20px 0;
+            max-width: 100%;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+        .success { background: #113311; color: #44ff44; }
+        .error { background: #331111; color: #ff4444; }
+    </style>
+</head>
+<body>
+    <h1>🎥 Screen Capture Debug Test</h1>
+
+    <p>This tests the persistent screen capture implementation and backend communication.</p>
+
+    <h2>Step 1: Start Screen Capture</h2>
+    <button onclick="startCapture()">Start Persistent Screen Capture</button>
+    <div id="status1"></div>
+
+    <h2>Step 2: Capture Frame</h2>
+    <button onclick="captureFrame()">Capture Current Frame</button>
+    <div id="status2"></div>
+
+    <h2>Step 3: Send to Backend</h2>
+    <button onclick="sendToBackend()">Send Screenshot to Backend</button>
+    <div id="status3"></div>
+
+    <h2>Captured Screenshot:</h2>
+    <img id="preview" style="display: none;" />
+
+    <h2>Debug Output:</h2>
+    <pre id="output"></pre>
+
+    <script>
+        let persistentStream = null
+        let persistentVideo = null
+        let currentScreenshot = null
+
+        function log(message) {
+            const output = document.getElementById('output')
+            output.textContent += message + '\n'
+            console.log(message)
+        }
+
+        async function startCapture() {
+            const status = document.getElementById('status1')
+            try {
+                log('🎥 Requesting screen capture permission...')
+
+                persistentStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { displaySurface: 'browser' }
+                })
+
+                persistentVideo = document.createElement('video')
+                persistentVideo.srcObject = persistentStream
+                persistentVideo.autoplay = true
+                persistentVideo.muted = true
+                persistentVideo.playsInline = true
+
+                // CRITICAL: Attach to DOM for proper rendering (hidden)
+                persistentVideo.style.position = 'fixed'
+                persistentVideo.style.top = '-9999px'
+                persistentVideo.style.left = '-9999px'
+                persistentVideo.style.width = '1px'
+                persistentVideo.style.height = '1px'
+                persistentVideo.style.opacity = '0'
+                persistentVideo.style.pointerEvents = 'none'
+                document.body.appendChild(persistentVideo)
+
+                await new Promise(resolve => {
+                    persistentVideo.onloadedmetadata = resolve
+                })
+
+                // Ensure video actually plays
+                try {
+                    await persistentVideo.play()
+                    log('   ▶️ Video playing')
+                } catch (e) {
+                    log(`   ⚠️ Video play() failed: ${e.message}`)
+                }
+
+                // Wait longer for frames to render
+                await new Promise(resolve => setTimeout(resolve, 500))
+
+                log(`✅ Screen capture started`)
+                log(`   Dimensions: ${persistentVideo.videoWidth}x${persistentVideo.videoHeight}`)
+
+                status.className = 'status success'
+                status.textContent = `✅ Screen capture active (${persistentVideo.videoWidth}x${persistentVideo.videoHeight})`
+
+                persistentStream.getTracks()[0].onended = () => {
+                    log('⚠️ User stopped screen sharing')
+                    status.className = 'status error'
+                    status.textContent = '⚠️ Screen sharing stopped'
+                }
+            } catch (error) {
+                log(`❌ Screen capture failed: ${error.message}`)
+                status.className = 'status error'
+                status.textContent = `❌ ${error.message}`
+            }
+        }
+
+        async function captureFrame() {
+            const status = document.getElementById('status2')
+
+            if (!persistentStream || !persistentVideo) {
+                log('❌ Screen capture not active. Start it first.')
+                status.className = 'status error'
+                status.textContent = '❌ Start screen capture first'
+                return
+            }
+
+            try {
+                log('📸 Capturing frame from stream...')
+
+                const canvas = document.createElement('canvas')
+                canvas.width = persistentVideo.videoWidth
+                canvas.height = persistentVideo.videoHeight
+
+                const ctx = canvas.getContext('2d')
+                ctx.drawImage(persistentVideo, 0, 0)
+
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+                const base64 = dataUrl.split(',')[1]
+
+                currentScreenshot = base64
+
+                log(`✅ Frame captured`)
+                log(`   Canvas size: ${canvas.width}x${canvas.height}`)
+                log(`   Base64 length: ${base64.length} chars`)
+                log(`   First 50 chars: ${base64.substring(0, 50)}`)
+                log(`   Data URL prefix: ${dataUrl.substring(0, 30)}`)
+
+                // Show preview
+                const preview = document.getElementById('preview')
+                preview.src = dataUrl
+                preview.style.display = 'block'
+
+                status.className = 'status success'
+                status.textContent = `✅ Frame captured (${base64.length} chars)`
+            } catch (error) {
+                log(`❌ Capture failed: ${error.message}`)
+                status.className = 'status error'
+                status.textContent = `❌ ${error.message}`
+            }
+        }
+
+        async function sendToBackend() {
+            const status = document.getElementById('status3')
+
+            if (!currentScreenshot) {
+                log('❌ No screenshot to send. Capture a frame first.')
+                status.className = 'status error'
+                status.textContent = '❌ Capture a frame first'
+                return
+            }
+
+            try {
+                log('📤 Sending screenshot to backend...')
+
+                const response = await fetch('http://localhost:8000/question', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: 'What is happening right now in the video?',
+                        video_id: 'JuBBIJ7adjM',
+                        playback_time: 10.0,
+                        is_live: false,
+                        screenshot: currentScreenshot
+                    })
+                })
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+                }
+
+                const data = await response.json()
+
+                log(`✅ Backend response received`)
+                log(`   Answer: ${data.answer}`)
+                log(`   Full response: ${JSON.stringify(data, null, 2)}`)
+
+                status.className = 'status success'
+                status.textContent = `✅ Backend processed screenshot successfully`
+            } catch (error) {
+                log(`❌ Backend request failed: ${error.message}`)
+                status.className = 'status error'
+                status.textContent = `❌ ${error.message}`
+            }
+        }
+    </script>
+</body>
+</html>
