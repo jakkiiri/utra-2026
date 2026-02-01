@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 from enum import Enum
 
@@ -61,3 +61,39 @@ class CommentaryItemPush(BaseModel):
     content: str
     highlight: Optional[dict] = None  # { value: str, label?: str, image?: str, stats?: list }
     comparison: Optional[dict] = None  # { current: float, record: float, note: str }
+
+
+# =============================================================================
+# Structured Output Schemas for LangChain
+# =============================================================================
+
+class PlayerStatistic(BaseModel):
+    """Individual player statistic"""
+    label: str = Field(description="Stat label (e.g., 'Record', 'Championships', 'Win Rate')")
+    value: str = Field(description="Stat value (e.g., '29-0', '3 titles', '85%')")
+
+
+class PlayerProfile(BaseModel):
+    """Structured player profile extracted from search results"""
+    name: str = Field(description="Player's full name")
+    sport: str = Field(description="Sport or discipline (e.g., 'MMA', 'Snowboarding')")
+    summary: str = Field(description="Concise 1-2 sentence summary of player's career and achievements")
+    key_stats: List[PlayerStatistic] = Field(
+        description="3-5 most important statistics or achievements",
+        max_length=5
+    )
+    notable_achievement: str = Field(description="Single most notable achievement or record")
+    source_url: Optional[str] = Field(description="URL of primary source")
+    image_url: Optional[str] = Field(description="URL of player image if available")
+
+
+class EventContext(BaseModel):
+    """Structured event/competition context"""
+    event_name: str = Field(description="Name of the event or competition")
+    sport: str = Field(description="Sport or discipline")
+    key_facts: List[str] = Field(
+        description="2-4 key facts about the event, rules, or history",
+        max_length=4
+    )
+    significance: str = Field(description="Why this event is significant or interesting")
+    source_url: Optional[str] = Field(description="URL of primary source")

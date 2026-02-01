@@ -6,7 +6,7 @@ An accessibility-first Winter Olympics companion app.
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from typing import List, Set
+from typing import List, Set, Optional
 import json
 import asyncio
 from contextlib import asynccontextmanager
@@ -93,130 +93,33 @@ manager = ConnectionManager()
 # Helper Functions
 # =============================================================================
 
-async def push_exa_result_as_card(exa_result: dict, is_player: bool = False):
+async def trigger_proactive_research(video_id: str, video_title: str):
     """
-    Push an Exa search result as a commentary card to all connected clients.
+    Trigger silent background research when video loads.
 
-    Args:
-        exa_result: Dictionary with title, url, highlights, score, image (optional)
-        is_player: Whether this is a player/athlete profile (enables special formatting)
-    """
-    # Extract content from highlights
-    highlights = exa_result.get("highlights", [])
-    if isinstance(highlights, str):
-        highlights = [highlights]
-
-    title = exa_result.get("title", "Search Result")
-
-    # Detect if this is a player profile
-    player_keywords = ["fighter", "athlete", "player", "ufc", "boxer", "wrestler", "champion"]
-    is_player_profile = is_player or any(keyword in title.lower() for keyword in player_keywords)
-
-    if is_player_profile:
-        # Format as player profile card with stats
-        card = CommentaryItemPush(
-            type="player_profile",
-            title=title,
-            content=highlights[0] if highlights else "Professional athlete profile",
-            highlight={
-                "value": exa_result.get("url", ""),
-                "label": "Full Profile",
-                "image": exa_result.get("image", ""),  # Player image from Exa
-                "stats": highlights[1:4] if len(highlights) > 1 else []  # Stats bullets
-            }
-        )
-    else:
-        # Regular info card
-        content = highlights[0] if highlights else ""
-        card = CommentaryItemPush(
-            type="historical",
-            title=title,
-            content=content or "Click source to learn more",
-            highlight={
-                "value": exa_result.get("url", ""),
-                "label": "Source"
-            }
-        )
-
-    await manager.broadcast(
-        WebSocketMessage(
-            type=WebSocketEventType.PUSH_COMMENTARY,
-            data=card.model_dump()
-        )
-    )
-
-
-async def research_video_context_background(video_id: str, video_title: str):
-    """
-    Background task: Research players and event info when video loads.
-    Pushes results as cards automatically.
+    This does:
+    1. Extract potential athletes from title
+    2. Search for their profiles
+    3. Store results as context (NO cards pushed, NO agent response)
+    4. Context will be used when user asks questions for faster responses
 
     Args:
         video_id: YouTube video ID
         video_title: Video title for context
     """
     try:
-        print(f"🔍 Starting proactive research for: {video_title}")
+        print(f"🔍 Triggering silent background research for: {video_title}")
 
-        # Use agent service to research
-        context = await agent_service.research_video_context(
-            video_title=video_title
+        # Use agent service for silent research (stores context only)
+        await agent_service.proactive_video_research(
+            video_title=video_title,
+            video_id=video_id
         )
 
-        # Push player info cards
-        for player_info in context.get("players", []):
-            if player_info.get("info"):
-                info = player_info["info"]
-                highlights = info.get("highlights", [])
-                content = highlights[0] if highlights else "Player information available"
-
-                card = CommentaryItemPush(
-                    type="analysis",
-                    title=f"Player: {player_info['name']}",
-                    content=content,
-                    highlight={
-                        "value": info.get("url", ""),
-                        "label": "Source"
-                    }
-                )
-
-                await manager.broadcast(
-                    WebSocketMessage(
-                        type=WebSocketEventType.PUSH_COMMENTARY,
-                        data=card.model_dump()
-                    )
-                )
-
-                # Small delay between cards to avoid flooding
-                await asyncio.sleep(0.5)
-
-        # Push event context card
-        event_info = context.get("event_info")
-        if event_info:
-            highlights = event_info.get("highlights", [])
-            content = highlights[0] if highlights else "Event information available"
-
-            card = CommentaryItemPush(
-                type="historical",
-                title=f"About {context.get('sport', 'this event')}",
-                content=content,
-                highlight={
-                    "value": event_info.get("url", ""),
-                    "label": "Source"
-                }
-            )
-
-            await manager.broadcast(
-                WebSocketMessage(
-                    type=WebSocketEventType.PUSH_COMMENTARY,
-                    data=card.model_dump()
-                )
-            )
-
-        print(f"✅ Proactive research complete for: {video_title}")
+        print(f"✅ Background research completed for: {video_title}")
 
     except Exception as e:
-        print(f"❌ Proactive research failed: {e}")
+        print(f"⚠️ Background research failed (non-critical): {e}")
 
 
 # =============================================================================
@@ -266,10 +169,10 @@ async def load_video(request: VideoLoadRequest):
     else:
         message = "No captions available. Using video title and description for context."
 
-    # Trigger proactive research in background
+    # Trigger agent-driven proactive research in background
     video_title = metadata.get("title", "Unknown")
     asyncio.create_task(
-        research_video_context_background(video_id, video_title)
+        trigger_proactive_research(video_id, video_title)
     )
 
     return VideoLoadResponse(
@@ -309,7 +212,6 @@ async def ask_question(request: QuestionRequest):
         )
 
         answer = result["answer"]
-        exa_results = result.get("exa_results", [])
         tools_used = result.get("tools_used", [])
 
         # NOTE: Cards are now pushed by the agent itself using push_info_card tool
@@ -351,11 +253,11 @@ async def ask_question(request: QuestionRequest):
 async def get_transcript(
     video_id: str,
     start_time: float = 0,
-    end_time: float = None
+    end_time: Optional[float] = None
 ):
     """
     Get transcript for a video, optionally filtered by time range.
-    
+
     Args:
         video_id: YouTube video ID
         start_time: Start of time range (seconds)

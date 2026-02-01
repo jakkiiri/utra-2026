@@ -26,6 +26,9 @@ from config import GEMINI_API_KEY, EXA_API_KEY
 # Global cache for Exa results (for card generation)
 _exa_result_cache: Dict[str, List[Dict]] = {}
 
+# Global cache for video-specific context
+_video_context_cache: Dict[str, Dict] = {}
+
 
 # =============================================================================
 # Tool Definitions
@@ -46,6 +49,11 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
     IMPORTANT: When users ask "who's playing" or "who is [athlete]", ALWAYS use this tool!
     Set category="people" when searching for athletes specifically.
 
+    After using this tool, you MUST:
+    1. Analyze and summarize the results
+    2. Use push_info_card() to push processed information (not raw search results)
+    3. Only push the most relevant, insightful information
+
     Args:
         query: Search query (e.g., "Khabib Nurmagomedov UFC stats and profile")
         category: Optional category filter:
@@ -55,8 +63,8 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
             - None: General search (recommended for stats/records)
 
     Returns:
-        JSON string with search results including title, URL, highlights, and score.
-        Results are automatically pushed as cards to the user interface.
+        Concise summary of key findings from top results.
+        You must then decide what information is worth pushing as cards.
     """
     if not EXA_API_KEY:
         return json.dumps({"error": "Exa search is not configured"})
@@ -71,20 +79,17 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
             enhanced_query = f"{query} professional athlete fighter"
             print(f"  🔍 Enhanced query: {enhanced_query}")
 
-        # Search with highlights
+        # Search with highlights - reduced number for more focused results
         results = exa.search_and_contents(
             query=enhanced_query,
-            type="auto",  # Balanced relevance and speed
-            num_results=8,  # Get more to filter out irrelevant ones
+            type="auto",
+            num_results=5,  # Reduced from 8 for more focused results
             category=category,
             highlights={
-                "num_sentences": 6,
-                "highlights_per_url": 6
+                "num_sentences": 3,  # Reduced from 6 for conciseness
+                "highlights_per_url": 3  # Reduced from 6 for conciseness
             }
         )
-
-        # Format and filter results
-        formatted = []
 
         # Spam/irrelevant indicators
         spam_indicators = [
@@ -93,20 +98,24 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
             "mcgregor projects", "repair and maintenance"
         ]
 
-        # Sports/athlete indicators (for relevance)
+        # Sports/athlete indicators
         sports_indicators = [
             "ufc", "mma", "fighter", "boxing", "champion", "athlete",
             "martial arts", "combat sports", "knockout", "fight",
-            "wrestling", "championship", "octagon", "professional record"
+            "wrestling", "championship", "octagon", "professional record",
+            "olympics", "world cup", "medal", "competition"
         ]
+
+        # Process and extract key insights
+        insights = []
 
         for r in results.results:
             title_lower = r.title.lower()
             url_lower = r.url.lower()
 
-            # Skip if spam indicators found
+            # Skip spam
             if any(indicator in title_lower or indicator in url_lower for indicator in spam_indicators):
-                print(f"  ⚠️ Filtered out spam result: {r.title[:50]}")
+                print(f"  ⚠️ Filtered out spam: {r.title[:50]}")
                 continue
 
             # For athlete searches, require sports indicators
@@ -114,65 +123,99 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
                 highlights_text = " ".join(r.highlights if hasattr(r, 'highlights') else []).lower()
                 combined_text = f"{title_lower} {highlights_text}"
 
-                # Must have at least one sports indicator
                 if not any(indicator in combined_text for indicator in sports_indicators):
-                    print(f"  ⚠️ Filtered out non-athlete result: {r.title[:50]}")
+                    print(f"  ⚠️ Filtered out non-athlete: {r.title[:50]}")
                     continue
 
-            item = {
-                "title": r.title,
-                "url": r.url,
-                "highlights": r.highlights if hasattr(r, 'highlights') else [],
-                "score": r.score if hasattr(r, 'score') else 1.0
+            # Extract structured insight
+            insight = {
+                "source_title": r.title,
+                "source_url": r.url,
+                "key_points": r.highlights if hasattr(r, 'highlights') else [],
+                "image_url": r.image if hasattr(r, 'image') else None
             }
-            formatted.append(item)
+            insights.append(insight)
 
-        # Limit to top 5 after filtering
-        formatted = formatted[:5]
+        # Limit to top 3 most relevant
+        insights = insights[:3]
 
-        print(f"  ✅ Filtered results: {len(formatted)} relevant out of {len(results.results)} total")
+        print(f"  ✅ Extracted {len(insights)} insights from search")
 
-        # Store for card generation
-        _store_exa_results_for_cards(formatted)
+        # Store raw insights for agent to process
+        _store_exa_results_for_cards(insights)
 
-        return json.dumps(formatted, indent=2)
+        # Return concise summary for agent to analyze
+        if not insights:
+            return "No relevant results found. Try refining the search query or checking the spelling."
+
+        summary = f"Found {len(insights)} relevant sources:\n\n"
+        for i, insight in enumerate(insights, 1):
+            summary += f"{i}. {insight['source_title']}\n"
+            if insight['key_points']:
+                summary += f"   Key info: {insight['key_points'][0]}\n"
+            summary += f"   Source: {insight['source_url']}\n\n"
+
+        summary += "IMPORTANT: Analyze these results and use push_info_card() to share the most valuable insights with the user. Do not dump raw results."
+
+        return summary
 
     except Exception as e:
-        return json.dumps({"error": f"Exa search failed: {str(e)}"})
+        # Log error for debugging but provide clean message to agent
+        print(f"❌ Exa search error: {str(e)}")
+        return "Search service temporarily unavailable. Try using video metadata and transcript to answer the question."
 
 
 @tool
-async def push_info_card(title: str, content: str, card_type: str = "analysis", source_url: str = "", image_url: str = "") -> str:
+async def push_info_card(
+    title: str,
+    content: str,
+    card_type: str = "analysis",
+    source_url: str = "",
+    image_url: str = "",
+    stats: Optional[List[str]] = None
+) -> str:
     """
     Push an information card to the user interface in real-time.
-    Use this to share player profiles, stats, or interesting facts with the user as you discover them.
+    Use this to share player profiles, stats, or interesting facts AFTER analyzing search results.
+
+    CRITICAL: Only push processed, insightful information. Do NOT push raw search results.
+    Always analyze and summarize before pushing.
 
     Args:
         title: Card title (e.g., "Khabib Nurmagomedov", "UFC Record")
-        content: Main content/description for the card
-        card_type: Type of card - "player_profile" for athletes, "historical" for facts, "analysis" for insights
-        source_url: Optional URL to source (e.g., Wikipedia page)
-        image_url: Optional image URL (for player profiles)
+        content: Concise 1-2 sentence summary (your analysis, not raw text)
+        card_type: Type of card:
+            - "player_profile": For athlete profiles with stats
+            - "historical": For historical facts or context
+            - "analysis": For insights and analysis
+        source_url: URL to source for verification
+        image_url: Image URL (for player profiles)
+        stats: List of 3-5 key statistics as bullet points (e.g., ["Record: 29-0", "Titles: 3"])
 
     Returns:
         Confirmation that card was pushed
 
     Example:
+        # Good - processed and summarized:
         push_info_card(
             title="Khabib Nurmagomedov",
-            content="Undefeated UFC lightweight champion with 29-0 record",
+            content="Retired undefeated as UFC lightweight champion, known for dominant grappling.",
             card_type="player_profile",
-            source_url="https://en.wikipedia.org/wiki/Khabib_Nurmagomedov",
-            image_url="https://example.com/khabib.jpg"
+            source_url="https://ufc.com/athlete/khabib",
+            stats=["Record: 29-0", "UFC Title Defenses: 3", "Submission wins: 8"]
         )
+
+        # Bad - raw dump:
+        push_info_card(title="Search Result", content="<raw highlight text>")
     """
     try:
+        print(f"📤 push_info_card called: {title}")
+
         # Import here to avoid circular dependency
         from main import manager, WebSocketMessage, WebSocketEventType
         from models import CommentaryItemPush
-        import asyncio
 
-        # Create card
+        # Create card with structured stats
         card = CommentaryItemPush(
             type=card_type,
             title=title,
@@ -181,9 +224,11 @@ async def push_info_card(title: str, content: str, card_type: str = "analysis", 
                 "value": source_url,
                 "label": "Source" if source_url else "",
                 "image": image_url,
-                "stats": []  # Can be populated by splitting content if needed
-            } if source_url or image_url else None
+                "stats": stats or []
+            } if (source_url or image_url or stats) else None
         )
+
+        print(f"  📋 Card created: type={card_type}, has_highlight={card.highlight is not None}")
 
         # Push via WebSocket
         await manager.broadcast(
@@ -193,9 +238,12 @@ async def push_info_card(title: str, content: str, card_type: str = "analysis", 
             )
         )
 
+        print(f"  ✅ Card broadcast complete: {title}")
         return f"✅ Card pushed: {title}"
     except Exception as e:
-        return f"❌ Failed to push card: {str(e)}"
+        # Log error but don't expose details to agent/user
+        print(f"❌ Failed to push card: {str(e)}")
+        return "Card push failed. Continuing with answer..."
 
 
 @tool
@@ -244,7 +292,8 @@ async def analyze_screenshot(screenshot_base64: str, focus: str = "general") -> 
         return response.text
 
     except Exception as e:
-        return f"Screenshot analysis failed: {str(e)}"
+        print(f"❌ Screenshot analysis error: {str(e)}")
+        return "Screenshot analysis unavailable. Use transcript and metadata instead."
 
 
 # =============================================================================
@@ -268,6 +317,19 @@ def clear_exa_results():
     """Clear Exa result cache"""
     global _exa_result_cache
     _exa_result_cache.clear()
+
+
+def _store_video_context(video_id: str, context: Dict):
+    """Store video-specific context from proactive search"""
+    global _video_context_cache
+    _video_context_cache[video_id] = context
+    print(f"  💾 Cached context for video {video_id}")
+
+
+def _get_video_context(video_id: str) -> Optional[Dict]:
+    """Retrieve cached video context"""
+    global _video_context_cache
+    return _video_context_cache.get(video_id)
 
 
 # =============================================================================
@@ -420,7 +482,8 @@ class AgentService:
                     )
                     return response.text
                 except Exception as e:
-                    return f"Screenshot analysis failed: {str(e)}"
+                    print(f"❌ Screenshot analysis error: {str(e)}")
+                    return "Screenshot analysis unavailable. Use transcript and metadata instead."
 
             tools_list.append(analyze_current_frame)
         else:
@@ -558,6 +621,13 @@ User question: {question}"""),
         video_title = metadata.get("title", "Unknown video")
         print(f"📹 Video context: {video_title} at {playback_time}s")
 
+        # Check if we have cached context from proactive search
+        cached_context = _get_video_context(video_id)
+        if cached_context:
+            print(f"  ✅ Using cached context: {cached_context.get('profiles_cached', 0)} profiles available")
+        else:
+            print(f"  ℹ️ No cached context available")
+
         # Create context-aware tools for this specific question
         try:
             context_tools = self._setup_context_tools(video_id, playback_time, screenshot_base64)
@@ -574,13 +644,19 @@ User question: {question}"""),
         # Create a temporary agent executor with context-bound tools
         from langchain_core.prompts import MessagesPlaceholder
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are WinterStream AI, an assistant for sports events and live streams.
+        # Build cached info section if available
+        cached_section = ""
+        if cached_context and cached_context.get('profiles_cached', 0) > 0:
+            sport = cached_context.get('sport', 'Unknown')
+            count = cached_context.get('profiles_cached', 0)
+            cached_section = f"\n\nCACHED CONTEXT AVAILABLE:\n- Sport: {sport}\n- {count} athlete profile(s) already searched and cached\n- Use search_exa to retrieve cached results (faster than fresh search)\n"
+
+        system_prompt = f"""You are WinterStream AI, an assistant for sports events and live streams.
 
 CRITICAL: You MUST use tools for every question. DO NOT answer from memory alone!
-
+{cached_section}
 Available Tools (USE THESE):
-- search_exa: Search the web for player stats, records, event info, news
+- search_exa: Search the web for player stats, records, event info, news (may use cached results for speed)
 - push_info_card: Push info cards to user interface AS YOU FIND INFORMATION (use this proactively!)
 - analyze_screenshot: Analyze current frame for what's happening visually RIGHT NOW
 - get_current_transcript: Access recent commentary/captions (automatically uses current stream and time)
@@ -594,11 +670,14 @@ FORBIDDEN PHRASES (Never say these):
 ❌ "I'm pulling up"
 If you say these, you FAILED to use tools properly!
 
-Tool Usage Priority:
+Tool Usage Priority (BE EFFICIENT - avoid redundant calls):
 1. For athlete/player questions:
-   a. Use search_exa(query="[name] [sport] stats", category="people")
-   b. IMMEDIATELY use push_info_card() for each athlete found
-   c. Then answer the question
+   a. Check if we have cached profiles (see CACHED CONTEXT above)
+   b. If cached, use search_exa ONCE (will retrieve all cached results)
+   c. ANALYZE the search results - extract key insights, achievements, notable stats
+   d. SUMMARIZE the findings in your own words (do NOT copy-paste highlights)
+   e. Use push_info_card() for each athlete with your processed summary
+   f. Answer with summary
 
 2. For "what's happening" questions:
    a. ALWAYS use get_current_transcript first (tells you what's happening)
@@ -609,7 +688,19 @@ Tool Usage Priority:
 3. For general questions:
    a. Use get_current_video_metadata to understand the event
    b. Use get_current_transcript for recent commentary
-   c. Use search_exa if you need additional facts
+   c. Use search_exa only if needed for additional facts
+
+EFFICIENCY TIPS:
+- Don't search for the same thing twice
+- Use get_current_video_metadata FIRST to understand the event
+- ONE search can cover multiple athletes
+- Push all cards, then answer once at the end
+
+CRITICAL: Never push raw search results. Always:
+- Extract the most important 3-5 facts
+- Summarize in concise, engaging language
+- Format stats as clean bullet points (e.g., "Record: 29-0", "Titles: 3")
+- Only push if the information adds real value
 
 Examples:
 Q: "Who's playing?"
@@ -628,6 +719,14 @@ Q: "Tell me about Khabib"
   2. Use push_info_card(title="Khabib Nurmagomedov", content="29-0 record...", card_type="player_profile")
   3. Answer with key facts
 ❌ WRONG: Answer from memory without search or don't push card
+
+Q: "Give me information cards" or "Show me cards"
+✅ CORRECT:
+  1. Use get_current_video_metadata to identify athletes
+  2. For each athlete, use search_exa
+  3. For each athlete, use push_info_card with their profile
+  4. Answer: "I've sent profile cards for the athletes!"
+❌ WRONG: Just describe the athletes without pushing cards
 
 Response Format:
 - Start with facts from tools
@@ -648,16 +747,19 @@ Guidelines:
 10. If you use search_exa, results will automatically appear as cards for the user
 
 Context:
-- Event: {video_title}
-- Current time: {current_time} seconds
-- Screenshot available: {has_screenshot}
+- Event: {{video_title}}
+- Current time: {{current_time}} seconds
+- Screenshot available: {{has_screenshot}}
 
 Tool Strategy:
 - If screenshot available → Use analyze_current_frame for visual context
 - If screenshot NOT available → Use get_current_transcript (tells you what's happening!)
 - NEVER say "I can't answer because screenshot unavailable" - use transcript instead!
 
-User question: {question}"""),
+User question: {{question}}"""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
             ("human", "{question}"),
             MessagesPlaceholder(variable_name="agent_scratchpad")
         ])
@@ -666,9 +768,10 @@ User question: {question}"""),
         agent_executor = AgentExecutor(
             agent=agent,
             tools=context_tools,
-            verbose=True,
-            max_iterations=5,
-            handle_parsing_errors=True
+            verbose=False,  # Disable verbose to reduce noise
+            max_iterations=10,  # Increased from 5 to allow for multi-step tasks
+            handle_parsing_errors=True,
+            early_stopping_method="generate"  # Generate final answer even if max iterations reached
         )
 
         # Prepare input for agent
@@ -680,14 +783,10 @@ User question: {question}"""),
         }
 
         try:
-            # Check if this is an athlete/player question that requires search
-            athlete_keywords = ["who", "who's", "player", "athlete", "fighter", "playing", "competing"]
-            needs_search = any(keyword in question.lower() for keyword in athlete_keywords)
-
             # Run agent with streaming callbacks
             print(f"🤖 Running agent for question: {question[:50]}...")
-            print(f"   Athlete question detected: {needs_search}")
             print(f"   Screenshot available: {'Yes' if screenshot_base64 else 'No'}")
+            print(f"   Cached context: {'Yes' if cached_context else 'No'}")
 
             # Import WebSocket manager for streaming
             from main import manager, WebSocketMessage, WebSocketEventType
@@ -695,7 +794,7 @@ User question: {question}"""),
             # Stream status update
             await manager.broadcast(WebSocketMessage(
                 type=WebSocketEventType.PROCESSING_START,
-                data={"status": "Agent is thinking and gathering information..."}
+                data={"status": "Processing your question..."}
             ))
 
             # Use async invoke instead of sync to support async tools
@@ -706,77 +805,39 @@ User question: {question}"""),
 
             # Extract tools used from intermediate steps
             tools_used = []
+            cards_pushed = 0
+            iterations_used = 0
             if "intermediate_steps" in result:
-                print(f"📊 Intermediate steps: {len(result['intermediate_steps'])}")
+                iterations_used = len(result['intermediate_steps'])
+                print(f"📊 Intermediate steps: {iterations_used} / 10 iterations used")
                 for step in result["intermediate_steps"]:
                     if len(step) > 0:
                         tool_name = step[0].tool if hasattr(step[0], 'tool') else "unknown"
                         tools_used.append(tool_name)
+                        if tool_name == "push_info_card":
+                            cards_pushed += 1
                         print(f"  🔧 Tool used: {tool_name}")
+
+                # Warn if hitting limits
+                if iterations_used >= 9:
+                    print(f"  ⚠️ WARNING: Agent used {iterations_used}/10 iterations - might need optimization")
 
             # Get Exa results if search was used
             exa_results = get_latest_exa_results()
-            print(f"🔍 Exa results found: {len(exa_results)}")
+            if exa_results:
+                print(f"🔍 Exa results: {len(exa_results)} profiles")
 
-            # Detect bad responses that promise action without taking it
-            bad_phrases = [
-                "i'm going to pull up",
-                "i'll pull up",
-                "let me pull up",
-                "i'm pulling up",
-                "i'll try to get",
-                "let me get",
-                "i'll keep trying"
-            ]
-            answer_lower = answer.lower()
-            if any(phrase in answer_lower for phrase in bad_phrases):
-                print("⚠️ WARNING: Agent promised action without taking it!")
-
-                # If this was an athlete question and no search was used, force a search
-                if needs_search and "search_exa" not in tools_used:
-                    print("🔄 Forcing Exa search for athlete question...")
-
-                    # Extract sport/event type from title for better context
-                    import re
-                    sport_keywords = {
-                        "ufc": "UFC MMA",
-                        "mma": "MMA",
-                        "boxing": "boxing",
-                        "nfl": "NFL football",
-                        "nba": "NBA basketball",
-                        "olympics": "Olympics",
-                        "soccer": "soccer",
-                        "football": "football"
-                    }
-
-                    sport_context = ""
-                    for keyword, context in sport_keywords.items():
-                        if keyword in video_title.lower():
-                            sport_context = context
-                            break
-
-                    # Create specific search query with sport context
-                    if sport_context:
-                        search_query = f"{video_title} {sport_context} professional athletes fighter stats"
-                    else:
-                        search_query = f"{video_title} professional athletes stats"
-
-                    print(f"  📝 Search query: {search_query}")
-
-                    # Do the search directly
-                    search_result = search_exa.invoke({"query": search_query, "category": "people"})
-                    exa_results = get_latest_exa_results()
-                    print(f"✅ Forced search completed: {len(exa_results)} results")
-
-                    # Replace the bad answer with actual information
-                    if exa_results:
-                        answer = f"Based on the event, I found profiles for the athletes. Check the cards on the right for their stats and backgrounds!"
-                    else:
-                        answer = "I'm having trouble finding specific athlete information. Could you ask about a specific person by name?"
-                    tools_used.append("search_exa")
+            # Log card push status
+            print(f"📊 Summary: {cards_pushed} cards pushed, {len(tools_used)} tools used")
 
             # Extract sources from Exa results
-            sources = [r["url"] for r in exa_results if "url" in r]
+            sources = []
+            if exa_results:
+                for r in exa_results:
+                    if "source_url" in r:
+                        sources.append(r["source_url"])
+                    elif "url" in r:
+                        sources.append(r["url"])
 
             return {
                 "answer": answer,
@@ -786,120 +847,85 @@ User question: {question}"""),
             }
 
         except Exception as e:
+            # Log full error for debugging, but provide clean user-facing message
             print(f"❌ Agent error: {e}")
             import traceback
             print(traceback.format_exc())
 
-            # Provide a helpful fallback response
+            # Provide a clean fallback response without error details
             return {
-                "answer": f"I'm having a technical issue right now. Here's what I know about the event based on the title: {video_title}. Please try asking again in a moment.",
+                "answer": "I'm having trouble answering right now. Please try again in a moment.",
                 "sources": [],
                 "tools_used": [],
                 "exa_results": []
             }
 
-    async def research_video_context(
+    async def proactive_video_research(
         self,
         video_title: str,
-        screenshot_base64: Optional[str] = None
-    ) -> Dict[str, Any]:
+        video_id: str
+    ):
         """
-        Proactive research on video load to gather context about players and event.
+        Proactive background research when video loads.
+        Searches for relevant information and stores as context WITHOUT agent response.
+
+        This does:
+        1. Extract athlete/player names from title
+        2. Search for their profiles (Exa)
+        3. Store results as context for future questions
+        4. NO cards pushed, NO agent response - silent background task
 
         Args:
             video_title: YouTube video title
-            screenshot_base64: Optional screenshot from video start
-
-        Returns:
-            Dictionary with:
-            - players: List[dict] - Player information
-            - event_info: dict - Event/competition information
-            - sport: str - Sport/event type identified
+            video_id: YouTube video ID
         """
         try:
-            # Step 1: Analyze title to extract sport, athletes, competition
-            analysis_prompt = f"""
-            Analyze this video title: "{video_title}"
+            print(f"🔍 Starting silent proactive research for: {video_title}")
 
-            Extract and return as JSON:
-            {{
-                "sport": "sport or event type (e.g., 'snowboard halfpipe', 'figure skating')",
-                "athletes": ["athlete name 1", "athlete name 2"],
-                "competition": "competition level (e.g., 'Olympics', 'World Cup', 'Championship')"
-            }}
+            # Extract potential athlete names and sport context
+            title_lower = video_title.lower()
 
-            If no athletes are mentioned, return empty array for athletes.
-            """
-
-            analysis_result = await asyncio.to_thread(
-                self.llm.invoke,
-                analysis_prompt
-            )
-
-            # Parse JSON from LLM response
-            import re
-            json_match = re.search(r'\{.*\}', analysis_result.content, re.DOTALL)
-            if json_match:
-                extracted_info = json.loads(json_match.group())
-            else:
-                extracted_info = {"sport": "unknown", "athletes": [], "competition": "unknown"}
-
-            # Step 2: Search for each athlete
-            player_data = []
-            for athlete in extracted_info.get("athletes", [])[:3]:  # Limit to 3 athletes
-                query = f"{athlete} {extracted_info['sport']} stats career highlights"
-
-                # Use Exa search
-                exa = Exa(api_key=EXA_API_KEY)
-                results = exa.search(
-                    query=query,
-                    type="auto",
-                    num_results=2,
-                    category="people",
-                    contents={"highlights": {"num_sentences": 4, "highlights_per_url": 4}}
-                )
-
-                if results.results:
-                    player_data.append({
-                        "name": athlete,
-                        "info": {
-                            "title": results.results[0].title,
-                            "url": results.results[0].url,
-                            "highlights": results.results[0].highlights if hasattr(results.results[0], 'highlights') else []
-                        }
-                    })
-
-            # Step 3: Search for event info
-            event_query = f"{extracted_info['sport']} {extracted_info['competition']} records rules history"
-            exa = Exa(api_key=EXA_API_KEY)
-            event_results = exa.search(
-                query=event_query,
-                type="auto",
-                num_results=2,
-                contents={"highlights": {"num_sentences": 6, "highlights_per_url": 6}}
-            )
-
-            event_info = None
-            if event_results.results:
-                event_info = {
-                    "title": event_results.results[0].title,
-                    "url": event_results.results[0].url,
-                    "highlights": event_results.results[0].highlights if hasattr(event_results.results[0], 'highlights') else []
-                }
-
-            return {
-                "players": player_data,
-                "event_info": event_info,
-                "sport": extracted_info.get("sport", "unknown")
+            # Detect sport type from title
+            sport_keywords = {
+                "ufc": "UFC MMA", "mma": "MMA", "boxing": "boxing",
+                "olympics": "Olympics", "winter olympics": "Winter Olympics",
+                "figure skating": "figure skating", "snowboarding": "snowboarding",
+                "skiing": "skiing", "ice hockey": "ice hockey"
             }
+
+            sport_context = None
+            for keyword, context in sport_keywords.items():
+                if keyword in title_lower:
+                    sport_context = context
+                    break
+
+            if not sport_context:
+                print("  ⚠️ No sport detected, skipping proactive search")
+                return
+
+            # Build search query from title
+            search_query = f"{video_title} professional athletes profiles stats"
+            print(f"  📝 Search query: {search_query}")
+
+            # Do direct search WITHOUT agent (just store context)
+            search_exa.invoke({
+                "query": search_query,
+                "category": "people"
+            })
+
+            # Results are automatically stored in cache by search_exa
+            exa_results = get_latest_exa_results()
+            print(f"✅ Silent research completed: {len(exa_results)} profiles cached")
+
+            # Store in video-specific context for future use
+            _store_video_context(video_id, {
+                "sport": sport_context,
+                "profiles_cached": len(exa_results),
+                "search_query": search_query
+            })
 
         except Exception as e:
-            print(f"Research error: {e}")
-            return {
-                "players": [],
-                "event_info": None,
-                "sport": "unknown"
-            }
+            print(f"⚠️ Proactive research failed (non-critical): {e}")
 
 
     async def start_live_monitoring(
@@ -919,9 +945,7 @@ User question: {question}"""),
 
         from main import manager, WebSocketMessage, WebSocketEventType
         from services.youtube_service import YouTubeService
-        import time
 
-        last_check_time = 0
         check_count = 0
 
         while True:
