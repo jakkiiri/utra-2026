@@ -165,6 +165,14 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
         return "Search service temporarily unavailable. Try using video metadata and transcript to answer the question."
 
 
+# Track pushed cards to detect duplicates within a request
+_pushed_cards_tracker: List[str] = []
+
+def _reset_card_tracker():
+    """Reset the card tracker for a new request"""
+    global _pushed_cards_tracker
+    _pushed_cards_tracker = []
+
 @tool
 async def push_info_card(
     title: str,
@@ -180,6 +188,7 @@ async def push_info_card(
 
     CRITICAL: Only push processed, insightful information. Do NOT push raw search results.
     Always analyze and summarize before pushing.
+    DO NOT push the same card twice - check if you already pushed this information!
 
     Args:
         title: Card title (e.g., "Khabib Nurmagomedov", "UFC Record")
@@ -209,7 +218,16 @@ async def push_info_card(
         push_info_card(title="Search Result", content="<raw highlight text>")
     """
     try:
+        global _pushed_cards_tracker
+
+        # Check for duplicate
+        card_key = f"{title}:{card_type}"
+        if card_key in _pushed_cards_tracker:
+            print(f"⚠️ DUPLICATE DETECTED: Card '{title}' already pushed, skipping")
+            return f"⚠️ Card '{title}' was already pushed. Skipped duplicate."
+
         print(f"📤 push_info_card called: {title}")
+        _pushed_cards_tracker.append(card_key)
 
         # Import here to avoid circular dependency
         from main import manager, WebSocketMessage, WebSocketEventType
@@ -564,8 +582,9 @@ User question: {question}"""),
             - tools_used: List[str] - Names of tools invoked
             - exa_results: List[dict] - Exa search results for card generation
         """
-        # Clear previous Exa results
+        # Clear previous Exa results and card tracker
         clear_exa_results()
+        _reset_card_tracker()
 
         # Debug screenshot data
         if screenshot_base64:
@@ -828,7 +847,8 @@ User question: {{question}}"""
                 print(f"🔍 Exa results: {len(exa_results)} profiles")
 
             # Log card push status
-            print(f"📊 Summary: {cards_pushed} cards pushed, {len(tools_used)} tools used")
+            unique_cards = len(_pushed_cards_tracker)
+            print(f"📊 Summary: {unique_cards} unique cards pushed, {len(tools_used)} tools used")
 
             # Extract sources from Exa results
             sources = []
