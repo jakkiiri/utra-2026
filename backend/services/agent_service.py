@@ -78,14 +78,12 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
     try:
         exa = Exa(api_key=EXA_API_KEY)
 
-        # Make query more specific for athlete searches to avoid LinkedIn and business profiles
+        # Make query more specific for athlete searches
         enhanced_query = query
         if category == "people":
-            # For athlete searches, exclude business profiles and focus on sports content
-            if not any(term in query.lower() for term in ["ufc", "mma", "fighter", "athlete", "boxer", "sport", "olympic"]):
-                enhanced_query = f"{query} professional athlete sports profile stats"
-            # Add exclusion terms to avoid LinkedIn
-            enhanced_query = f"{enhanced_query} -linkedin -business -ceo -executive"
+            # For athlete searches, add sports context if not already present
+            if not any(term in query.lower() for term in ["ufc", "mma", "fighter", "athlete", "boxer", "sport", "olympic", "skeleton", "bobsled"]):
+                enhanced_query = f"{query} athlete sports"
             print(f"  🔍 Enhanced query: {enhanced_query}")
 
         # Search with highlights - reduced number for more focused results
@@ -100,14 +98,19 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
             }
         )
 
-        # Spam/irrelevant indicators (including LinkedIn and business profiles)
+        # Spam/irrelevant indicators - be specific to avoid filtering athletes
         spam_indicators = [
-            "linkedin.com", "linkedin", "indeed.com", "glassdoor",
+            "linkedin.com/in/", "linkedin.com/posts", "indeed.com", "glassdoor",
             "cryptocurrency", "crypto mining", "scam",
             "maintenance ltd", "property maintenance",
             "mcgregor projects", "repair and maintenance",
-            "chief executive", "ceo", "business executive",
-            "job posting", "hiring", "careers"
+            "job posting", "hiring", "careers", "resume"
+        ]
+
+        # Business-only indicators (not sports organizations)
+        business_only_indicators = [
+            "consulting", "investment", "venture capital",
+            "real estate", "insurance", "financial services"
         ]
 
         # Sports/athlete indicators (expanded for winter sports and general athletics)
@@ -133,19 +136,60 @@ def search_exa(query: str, category: Optional[str] = None) -> str:
             title_lower = r.title.lower()
             url_lower = r.url.lower()
 
-            # Skip spam
-            if any(indicator in title_lower or indicator in url_lower for indicator in spam_indicators):
-                print(f"  ⚠️ Filtered out spam: {r.title[:50]}")
+            print(f"  📄 Checking: {r.title[:60]}")
+            print(f"      URL: {r.url[:80]}")
+
+            # Get highlights for better content analysis
+            highlights_text = ""
+            if hasattr(r, 'highlights') and r.highlights:
+                highlights_text = " ".join(r.highlights).lower()
+                print(f"      Highlights: {highlights_text[:100]}")
+
+            combined_text = f"{title_lower} {highlights_text} {url_lower}"
+
+            # Check for sports content in all results
+            sports_matches = [ind for ind in sports_indicators if ind in combined_text]
+            has_sports_content = len(sports_matches) > 0
+
+            # For athlete searches, REQUIRE sports content
+            if category == "people":
+                if not has_sports_content:
+                    print(f"  ⚠️ Filtered non-sports (no match)")
+                    continue
+
+                print(f"  ✅ Sports content found ({', '.join(sports_matches[:3])})")
+
+            # For LinkedIn profiles, accept ONLY if it's an athlete with sports content
+            is_linkedin = "linkedin.com/in/" in url_lower or "linkedin.com/posts" in url_lower
+            if is_linkedin:
+                if category == "people" and has_sports_content:
+                    print(f"  ✅ LinkedIn athlete profile - ACCEPTED")
+                else:
+                    print(f"  ⚠️ Filtered LinkedIn (not athlete)")
+                    continue
+
+            # Skip other obvious spam (not LinkedIn)
+            spam_match = None
+            for indicator in spam_indicators:
+                if indicator not in ["linkedin.com/in/", "linkedin.com/posts"]:  # Skip LinkedIn indicators
+                    if indicator in title_lower or indicator in url_lower:
+                        spam_match = indicator
+                        break
+
+            if spam_match:
+                print(f"  ⚠️ Filtered spam (matched: '{spam_match}')")
                 continue
 
-            # For athlete searches, require sports indicators
-            if category == "people":
-                highlights_text = " ".join(r.highlights if hasattr(r, 'highlights') else []).lower()
-                combined_text = f"{title_lower} {highlights_text}"
+            # Skip business-only profiles
+            business_match = None
+            for indicator in business_only_indicators:
+                if indicator in title_lower:
+                    business_match = indicator
+                    break
 
-                if not any(indicator in combined_text for indicator in sports_indicators):
-                    print(f"  ⚠️ Filtered out non-athlete: {r.title[:50]}")
-                    continue
+            if business_match:
+                print(f"  ⚠️ Filtered business (matched: '{business_match}')")
+                continue
 
             # Extract structured insight
             insight = {
