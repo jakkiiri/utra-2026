@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Any
 import asyncio
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 from exa_py import Exa
@@ -572,7 +572,6 @@ User question: {question}"""),
             }
 
         # Create a temporary agent executor with context-bound tools
-        from langchain.agents import create_tool_calling_agent, AgentExecutor
         from langchain_core.prompts import MessagesPlaceholder
 
         prompt = ChatPromptTemplate.from_messages([
