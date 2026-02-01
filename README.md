@@ -1,4 +1,4 @@
-# WinterStream AI 🏂
+# WinterStream AI 🏂❄️
 
 An accessibility-first, audio-centric Winter Olympics companion web application. This app allows users to watch Winter Olympics events while receiving AI-powered accessible commentary and the ability to ask questions about what's happening.
 
