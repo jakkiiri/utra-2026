@@ -2,16 +2,19 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Sparkles, History, ChevronLeft, ChevronRight } from "lucide-react"
+import { PlayerProfileCard } from "./player-profile-card"
 
 export interface CommentaryItem {
   id: string
-  type: 'market_shift' | 'historical' | 'analysis' | 'narration'
+  type: 'market_shift' | 'historical' | 'analysis' | 'narration' | 'player_profile'
   timestamp: string
   title?: string
   content: string
   highlight?: {
     value: string
     label?: string
+    image?: string // Player image for player_profile type
+    stats?: string[] // Stats bullets for player_profile type
   }
   comparison?: {
     current: number
@@ -43,13 +46,18 @@ export function AICommentary({ items, isLive }: AICommentaryProps) {
 
   if (isCollapsed) {
     return (
-      <button
-        onClick={() => setIsCollapsed(false)}
-        className="glass-overlay p-2 rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"
-        aria-label="Expand AI commentary"
-      >
-        <ChevronLeft className="size-5 text-white/80" />
-      </button>
+      <div className="flex items-center gap-2">
+        <span className="glass-overlay px-3 py-2 rounded-lg text-xs text-white whitespace-nowrap pointer-events-none">
+          AI Commentary
+        </span>
+        <button
+          onClick={() => setIsCollapsed(false)}
+          className="glass-overlay p-2 rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"
+          aria-label="Expand AI commentary"
+        >
+          <ChevronLeft className="size-5 text-white/80" />
+        </button>
+      </div>
     )
   }
 
@@ -153,6 +161,17 @@ function CommentaryCard({ item }: { item: CommentaryItem }) {
           {item.content}
         </p>
       </div>
+    )
+  }
+
+  if (item.type === 'player_profile') {
+    return (
+      <PlayerProfileCard
+        title={item.title || "Player"}
+        content={item.content}
+        timestamp={item.timestamp}
+        highlight={item.highlight}
+      />
     )
   }
 

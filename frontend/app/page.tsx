@@ -7,29 +7,43 @@ import { AICommentary, type CommentaryItem } from "@/components/ai-commentary"
 import { AIChatInput } from "@/components/ai-chat-input"
 import { VideoPlayer } from "@/components/video-player"
 import { VideoUrlInput } from "@/components/video-url-input"
-import { 
-  askQuestion, 
-  VideoLoadResponse, 
-  wsClient, 
-  WebSocketMessage 
+import { SuggestedPrompts } from "@/components/suggested-prompts"
+import {
+  askQuestion,
+  VideoLoadResponse,
+  wsClient,
+  WebSocketMessage
 } from "@/lib/api"
+import { useSettings } from "@/contexts/settings-context"
+import {
+  startPersistentScreenCapture,
+  captureFromPersistentStream,
+  stopPersistentScreenCapture,
+  isScreenCaptureActive
+} from "@/lib/screenshot"
 
 export default function SportsNarratorPage() {
+  const { settings } = useSettings()
+
   // Video state
   const [videoId, setVideoId] = useState<string | null>(null)
   const [isLive, setIsLive] = useState(false)
-  
+
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [shouldPause, setShouldPause] = useState(false)
   const [shouldMuteVideo, setShouldMuteVideo] = useState(false)
-  
+
   // AI state
   const [isProcessing, setIsProcessing] = useState(false)
   const [isNarrating, setIsNarrating] = useState(false)
   const [isListeningToVoice, setIsListeningToVoice] = useState(false)
   const [isPlayingAIAudio, setIsPlayingAIAudio] = useState(false)
+
+  // Screen capture state
+  const [screenCaptureActive, setScreenCaptureActive] = useState(false)
+  const [showScreenCapturePrompt, setShowScreenCapturePrompt] = useState(true)
   
   // Commentary feed
   const [commentary, setCommentary] = useState<CommentaryItem[]>([
@@ -77,7 +91,7 @@ export default function SportsNarratorPage() {
           timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
           content: data.answer
         }
-        setCommentary(prev => [aiItem, ...prev.slice(0, 9)])
+        setCommentary(prev => [aiItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
       }
 
       // Play audio response if available
@@ -109,16 +123,37 @@ export default function SportsNarratorPage() {
     const handleError = (message: WebSocketMessage) => {
       const data = message.data as { message?: string }
       console.error('WebSocket error:', data.message)
-      
+
       const errorItem: CommentaryItem = {
         id: `error-${Date.now()}`,
         type: 'analysis',
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
         content: `I encountered an issue: ${data.message || 'Unknown error'}. Please try again.`
       }
-      setCommentary(prev => [errorItem, ...prev.slice(0, 9)])
+      setCommentary(prev => [errorItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
       setIsProcessing(false)
       setIsNarrating(false)
+    }
+
+    const handlePushCommentary = (message: WebSocketMessage) => {
+      const data = message.data as CommentaryItem
+
+      console.log('Received pushed commentary:', data)
+
+      // Add to commentary feed
+      setCommentary(prev => [data, ...prev.slice(0, settings.maxCommentaryItems - 1)])
+    }
+
+    const handleEventUpdate = (message: WebSocketMessage) => {
+      const data = message.data
+
+      console.log('Received event update:', data)
+
+      // Update event data with new values
+      setEventData(prev => ({
+        ...prev,
+        ...data
+      }))
     }
 
     wsClient.on('AUDIO_RESPONSE', handleAudioResponse)
@@ -126,6 +161,8 @@ export default function SportsNarratorPage() {
     wsClient.on('PROCESSING_START', handleProcessingStart)
     wsClient.on('PROCESSING_COMPLETE', handleProcessingComplete)
     wsClient.on('ERROR', handleError)
+    wsClient.on('PUSH_COMMENTARY', handlePushCommentary)
+    wsClient.on('PUSH_EVENT_UPDATE', handleEventUpdate)
 
     return () => {
       wsClient.off('AUDIO_RESPONSE', handleAudioResponse)
@@ -133,6 +170,8 @@ export default function SportsNarratorPage() {
       wsClient.off('PROCESSING_START', handleProcessingStart)
       wsClient.off('PROCESSING_COMPLETE', handleProcessingComplete)
       wsClient.off('ERROR', handleError)
+      wsClient.off('PUSH_COMMENTARY', handlePushCommentary)
+      wsClient.off('PUSH_EVENT_UPDATE', handleEventUpdate)
       wsClient.disconnect()
     }
   }, [])
@@ -206,6 +245,42 @@ export default function SportsNarratorPage() {
     return new Blob([byteArray], { type: mimeType })
   }
 
+  // Handle screen capture setup
+  const handleStartScreenCapture = useCallback(async () => {
+    const success = await startPersistentScreenCapture()
+    if (success) {
+      setScreenCaptureActive(true)
+      setShowScreenCapturePrompt(false)
+
+      // Add status message
+      const statusItem: CommentaryItem = {
+        id: `screen-capture-${Date.now()}`,
+        type: 'analysis',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        content: '📸 Screen capture enabled! I can now see what\'s happening in the video. Select the YouTube tab when prompted.'
+      }
+      setCommentary(prev => [statusItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
+    } else {
+      const errorItem: CommentaryItem = {
+        id: `screen-capture-error-${Date.now()}`,
+        type: 'analysis',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        content: '❌ Screen capture permission denied. I\'ll work without screenshots using transcript and metadata.'
+      }
+      setCommentary(prev => [errorItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
+      setShowScreenCapturePrompt(false)
+    }
+  }, [settings.maxCommentaryItems])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (isScreenCaptureActive()) {
+        stopPersistentScreenCapture()
+      }
+    }
+  }, [])
+
   // Handle video load
   const handleVideoLoaded = useCallback((response: VideoLoadResponse) => {
     setVideoId(response.video_id)
@@ -230,7 +305,7 @@ export default function SportsNarratorPage() {
         ? { value: 'Captions Available', label: '' }
         : undefined
     }
-    setCommentary(prev => [statusItem, ...prev.slice(0, 9)])
+    setCommentary(prev => [statusItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
   }, [])
 
   // Handle play state changes
@@ -258,8 +333,15 @@ export default function SportsNarratorPage() {
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
         content: 'Please load a YouTube video first by pasting the URL above. Then I can answer your questions about what\'s happening in the event!'
       }
-      setCommentary(prev => [helpItem, ...prev.slice(0, 9)])
+      setCommentary(prev => [helpItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
       return
+    }
+
+    // Stop any currently playing AI audio
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+      setIsPlayingAIAudio(false)
     }
 
     setIsProcessing(true)
@@ -272,11 +354,26 @@ export default function SportsNarratorPage() {
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
       content: `You asked: "${message}"`
     }
-    setCommentary(prev => [userItem, ...prev.slice(0, 9)])
+    setCommentary(prev => [userItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
 
     try {
+      // Capture screenshot from persistent stream if active
+      let screenshot: string | undefined = undefined
+
+      if (screenCaptureActive && isScreenCaptureActive()) {
+        try {
+          const capturedFrame = await captureFromPersistentStream()
+          if (capturedFrame) {
+            screenshot = capturedFrame
+            console.log('📸 Using screenshot from persistent screen capture')
+          }
+        } catch (e) {
+          console.log('⚠️ Screenshot capture failed, continuing without:', e)
+        }
+      }
+
       // Use REST API for question (more reliable than WebSocket for this)
-      const response = await askQuestion(message, videoId, currentTime, isLive)
+      const response = await askQuestion(message, videoId, currentTime, isLive, screenshot)
 
       // Add AI response to commentary
       const aiItem: CommentaryItem = {
@@ -285,7 +382,7 @@ export default function SportsNarratorPage() {
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
         content: response.answer
       }
-      setCommentary(prev => [aiItem, ...prev.slice(0, 8)])
+      setCommentary(prev => [aiItem, ...prev.slice(0, settings.maxCommentaryItems - 2)])
 
       // Play audio response
       if (response.audio_url) {
@@ -300,7 +397,7 @@ export default function SportsNarratorPage() {
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
         content: 'I\'m having trouble answering right now. Please try again in a moment.'
       }
-      setCommentary(prev => [errorItem, ...prev.slice(0, 9)])
+      setCommentary(prev => [errorItem, ...prev.slice(0, settings.maxCommentaryItems - 1)])
     } finally {
       setIsProcessing(false)
       setIsNarrating(false)
@@ -347,6 +444,14 @@ export default function SportsNarratorPage() {
       {/* Header */}
       <StreamHeader />
 
+      {/* Screen Capture Active Indicator */}
+      {screenCaptureActive && (
+        <div className="fixed top-24 right-4 z-50 bg-green-500/20 backdrop-blur-xl border border-green-500/30 rounded-full px-4 py-2 flex items-center gap-2 text-sm">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+          <span className="text-green-100">Screen Capture Active</span>
+        </div>
+      )}
+
       {/* Main Content - pointer-events-none to allow clicking video, children have pointer-events-auto */}
       <main className="relative z-10 flex-1 flex flex-col lg:flex-row px-4 lg:px-12 pt-20 lg:pt-28 pb-40 lg:pb-32 gap-4 lg:gap-8 h-full overflow-y-auto pointer-events-none">
         {/* Left Sidebar - Event Info */}
@@ -363,24 +468,65 @@ export default function SportsNarratorPage() {
         </div>
       </main>
 
+      {/* Screen Capture Prompt - Shown once at start */}
+      {showScreenCapturePrompt && !screenCaptureActive && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-50">
+          <div className="bg-lavender-500/10 backdrop-blur-xl border border-lavender-500/20 rounded-2xl p-4 shadow-xl">
+            <div className="flex items-start gap-4">
+              <div className="text-3xl">📸</div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-white mb-1">Enable Visual Context</h3>
+                <p className="text-sm text-white/70 mb-3">
+                  Let me see what's happening in the video for better answers.
+                  You'll be asked once to select the YouTube tab to share.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleStartScreenCapture}
+                    className="px-4 py-2 bg-lavender-500 hover:bg-lavender-600 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Enable Screen Capture
+                  </button>
+                  <button
+                    onClick={() => setShowScreenCapturePrompt(false)}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Skip (Use Transcript Only)
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Video URL Input - Fixed at top below header (shown when no video) */}
       {!videoId && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-40">
-          <VideoUrlInput 
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-40" style={{ marginTop: showScreenCapturePrompt ? '140px' : '0' }}>
+          <VideoUrlInput
             onVideoLoaded={handleVideoLoaded}
             disabled={isProcessing}
           />
         </div>
       )}
 
+      {/* Suggested Prompts */}
+      <div className="fixed bottom-24 lg:bottom-28 left-1/2 -translate-x-1/2 w-full max-w-3xl z-40 px-4 lg:px-6">
+        <SuggestedPrompts
+          onSelectPrompt={handleSendMessage}
+          videoLoaded={!!videoId}
+          isProcessing={isProcessing}
+        />
+      </div>
+
       {/* AI Chat Input */}
-      <AIChatInput 
+      <AIChatInput
         onSendMessage={handleSendMessage}
         onVoiceInput={handleVoiceInput}
         onListeningChange={setIsListeningToVoice}
         isProcessing={isProcessing}
-        placeholder={videoId 
-          ? "Ask about the event, rules, athletes, or what's happening..." 
+        placeholder={videoId
+          ? "Ask about the event, rules, athletes, or what's happening..."
           : "Load a video first, then ask questions..."}
       />
 

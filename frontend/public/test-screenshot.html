@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube Screenshot Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #fff; }
+        iframe { border: 2px solid #666; margin: 20px 0; }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #4a9eff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover { background: #357abd; }
+        #error { color: #ff4444; margin: 20px 0; padding: 20px; background: #331111; border-radius: 8px; }
+        #success { color: #44ff44; margin: 20px 0; padding: 20px; background: #113311; border-radius: 8px; }
+        canvas { border: 2px solid #44ff44; margin: 20px 0; }
+        pre { background: #2a2a2a; padding: 15px; border-radius: 8px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🎥 YouTube Screenshot Capture Test</h1>
+
+    <p>This demonstrates why frontend screenshot capture is BLOCKED by CORS policy.</p>
+
+    <h2>YouTube Video (Embedded Iframe):</h2>
+    <iframe
+        id="youtube-iframe"
+        width="560"
+        height="315"
+        src="https://www.youtube.com/embed/JuBBIJ7adjM?autoplay=0&controls=1"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+    </iframe>
+
+    <h2>Try to Capture Screenshot:</h2>
+    <button onclick="tryDirectIframeCapture()">Method 1: Direct Iframe → Canvas (Will FAIL)</button>
+    <button onclick="tryVideoElementCapture()">Method 2: Video Element → Canvas (Will FAIL)</button>
+    <button onclick="tryScreenCaptureAPI()">Method 3: Screen Capture API (Requires Permission)</button>
+
+    <div id="error" style="display: none;"></div>
+    <div id="success" style="display: none;"></div>
+    <canvas id="preview" style="display: none;"></canvas>
+
+    <script>
+        function showError(method, error) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.style.display = 'block';
+            document.getElementById('success').style.display = 'none';
+            errorDiv.innerHTML = `
+                <h3>❌ ${method} FAILED (as expected)</h3>
+                <p><strong>Error:</strong> ${error.name}</p>
+                <p><strong>Message:</strong> ${error.message}</p>
+                <pre>${error.stack}</pre>
+                <h4>Why This Happens:</h4>
+                <p>🔒 <strong>CORS (Cross-Origin Resource Sharing) Policy</strong></p>
+                <p>The YouTube iframe is from a different origin (youtube.com) than your page (localhost).</p>
+                <p>Browsers block accessing pixels from cross-origin content for security reasons.</p>
+                <p>This prevents malicious sites from capturing sensitive content from other sites.</p>
+            `;
+        }
+
+        function showSuccess(method, dataUrl) {
+            const successDiv = document.getElementById('success');
+            successDiv.style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            successDiv.innerHTML = `
+                <h3>✅ ${method} SUCCEEDED!</h3>
+                <p>Screenshot captured successfully.</p>
+            `;
+
+            const canvas = document.getElementById('preview');
+            canvas.style.display = 'block';
+            const img = new Image();
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+            };
+            img.src = dataUrl;
+        }
+
+        // Method 1: Try to capture iframe directly
+        function tryDirectIframeCapture() {
+            try {
+                const iframe = document.getElementById('youtube-iframe');
+                const canvas = document.getElementById('preview');
+                const ctx = canvas.getContext('2d');
+
+                canvas.width = iframe.width;
+                canvas.height = iframe.height;
+
+                // This will throw a SecurityError
+                ctx.drawImage(iframe, 0, 0);
+
+                showSuccess('Direct Iframe Capture', canvas.toDataURL());
+            } catch (error) {
+                showError('Direct Iframe Capture', error);
+            }
+        }
+
+        // Method 2: Try to find and capture video element
+        function tryVideoElementCapture() {
+            try {
+                const iframe = document.getElementById('youtube-iframe');
+
+                // Try to access iframe content (will fail due to CORS)
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                const video = iframeDoc.querySelector('video');
+
+                if (!video) {
+                    throw new Error('Cannot access video element inside YouTube iframe (CORS blocked)');
+                }
+
+                const canvas = document.getElementById('preview');
+                const ctx = canvas.getContext('2d');
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                ctx.drawImage(video, 0, 0);
+                showSuccess('Video Element Capture', canvas.toDataURL());
+            } catch (error) {
+                showError('Video Element Capture', error);
+            }
+        }
+
+        // Method 3: Screen Capture API (requires user permission)
+        async function tryScreenCaptureAPI() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                    throw new Error('Screen Capture API not supported in this browser');
+                }
+
+                // Request screen capture permission
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { mediaSource: 'screen' }
+                });
+
+                // Create video element to capture stream
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.play();
+
+                // Wait for video to be ready
+                await new Promise(resolve => {
+                    video.onloadedmetadata = resolve;
+                });
+
+                // Capture frame
+                const canvas = document.getElementById('preview');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+
+                // Stop stream
+                stream.getTracks().forEach(track => track.stop());
+
+                showSuccess('Screen Capture API', canvas.toDataURL());
+            } catch (error) {
+                showError('Screen Capture API', error);
+            }
+        }
+    </script>
+
+    <hr style="margin: 40px 0;">
+
+    <h2>📚 Summary:</h2>
+    <ul>
+        <li><strong>Method 1 & 2:</strong> BLOCKED by CORS - Browser security prevents cross-origin pixel access</li>
+        <li><strong>Method 3:</strong> Works BUT requires user permission every time (not practical for automated AI)</li>
+    </ul>
+
+    <h3>🎯 Solution:</h3>
+    <p>Since frontend capture is blocked, we use:</p>
+    <ol>
+        <li><strong>Server-side capture with Playwright</strong> (bypasses CORS but YouTube blocks bots)</li>
+        <li><strong>Work without screenshots</strong> using transcript + metadata + Exa search (works great!)</li>
+    </ol>
+</body>
+</html>

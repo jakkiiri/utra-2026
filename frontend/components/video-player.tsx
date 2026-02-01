@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react"
 import { Play, Pause, Volume2, VolumeX, Maximize, Settings } from "lucide-react"
 import { createPlayer, loadYouTubeAPI, PlayerState } from "@/lib/youtube"
+import { useSettings } from "@/contexts/settings-context"
+import { SettingsModal } from "./settings-modal"
 
 interface VideoPlayerProps {
   videoId?: string
@@ -23,6 +25,8 @@ export function VideoPlayer({
   voiceInputActive = false,
   aiSpeaking = false
 }: VideoPlayerProps) {
+  const { settings } = useSettings()
+  const [showSettings, setShowSettings] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(0.66)
   const [isMuted, setIsMuted] = useState(false)
@@ -178,16 +182,16 @@ export function VideoPlayer({
   useEffect(() => {
     if (playerRef.current && isReady && !voiceInputActive) {
       if (aiSpeaking) {
-        console.log('AI speaking - lowering video volume to 15%')
+        console.log(`AI speaking - lowering video volume to ${settings.volumeDuckingPercent}%`)
         playerRef.current.unMute()
-        playerRef.current.setVolume(15) // Lower to 15% during AI speech
+        playerRef.current.setVolume(settings.volumeDuckingPercent) // Lower volume during AI speech (configurable)
       } else if (!isMuted) {
         // Restore user's volume when AI stops speaking
         console.log('AI stopped - restoring volume to', userVolumeRef.current * 100)
         playerRef.current.setVolume(userVolumeRef.current * 100)
       }
     }
-  }, [aiSpeaking, isReady, isMuted, voiceInputActive])
+  }, [aiSpeaking, isReady, isMuted, voiceInputActive, settings.volumeDuckingPercent])
 
   // Update volume when changed
   useEffect(() => {
@@ -308,7 +312,34 @@ export function VideoPlayer({
         
         <div className="absolute inset-0 cinematic-vignette pointer-events-none" />
         <div className="absolute inset-0 bg-black/20 pointer-events-none" />
-        
+
+        {/* Glow ring when agent is thinking */}
+        {isNarrating && (
+          <div className="absolute inset-0 pointer-events-none z-40">
+            <svg className="w-full h-full">
+              <rect
+                x="8"
+                y="8"
+                width="calc(100% - 16px)"
+                height="calc(100% - 16px)"
+                fill="none"
+                stroke="url(#lavender-gradient)"
+                strokeWidth="4"
+                rx="12"
+                className="animate-pulse"
+                style={{ animationDuration: '2s' }}
+              />
+              <defs>
+                <linearGradient id="lavender-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#9b87f5" stopOpacity="0.8" />
+                  <stop offset="50%" stopColor="#7c4dff" stopOpacity="0.9" />
+                  <stop offset="100%" stopColor="#9b87f5" stopOpacity="0.8" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        )}
+
         {/* Narration indicator overlay */}
         {isNarrating && (
           <div className="absolute bottom-32 left-1/2 -translate-x-1/2 flex items-center gap-3 glass-overlay px-6 py-3 rounded-full pointer-events-none z-30">
@@ -324,7 +355,7 @@ export function VideoPlayer({
         )}
 
         {/* Time display for accessibility */}
-        {videoId && isReady && (
+        {videoId && isReady && duration > 0 && (!isPlaying || settings.showTimerDuringPlayback) && (
           <div className="absolute top-20 right-4 glass-overlay px-4 py-2 rounded-lg pointer-events-none z-30">
             <span className="text-sm text-white/80 font-mono">
               {formatTime(currentTime)} / {formatTime(duration)}
@@ -378,13 +409,14 @@ export function VideoPlayer({
 
       {/* Bottom Right Controls - Settings & Fullscreen */}
       <div className="fixed bottom-6 lg:bottom-10 right-4 lg:right-10 z-50 flex items-center gap-2 lg:gap-3">
-        <button 
+        <button
+          onClick={() => setShowSettings(true)}
           className="size-10 lg:size-12 rounded-full glass-overlay flex items-center justify-center hover:bg-white/20 transition-all text-white/80"
           aria-label="Settings"
         >
           <Settings className="size-4 lg:size-5" />
         </button>
-        <button 
+        <button
           onClick={handleFullscreen}
           className="size-10 lg:size-12 rounded-full glass-overlay flex items-center justify-center hover:bg-white/20 transition-all text-white/80"
           aria-label="Toggle fullscreen"
@@ -392,6 +424,9 @@ export function VideoPlayer({
           <Maximize className="size-4 lg:size-5" />
         </button>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </>
   )
 }

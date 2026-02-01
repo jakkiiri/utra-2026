@@ -7,6 +7,7 @@ load_dotenv("key.env")
 # API Keys
 GEMINI_API_KEY = os.getenv("gemini_api_key")
 ELEVENLABS_API_KEY = os.getenv("elevenlabs_api_key")
+EXA_API_KEY = os.getenv("EXA_API_KEY")
 
 # ElevenLabs settings
 ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel - clear, friendly voice
@@ -20,3 +21,5 @@ if not GEMINI_API_KEY:
     raise ValueError("Missing gemini_api_key in key.env")
 if not ELEVENLABS_API_KEY:
     raise ValueError("Missing elevenlabs_api_key in key.env")
+if not EXA_API_KEY:
+    print("WARNING: EXA_API_KEY not found in key.env - Exa search functionality will be disabled")

@@ -32,13 +32,18 @@ export function EventSidebar({
 
   if (isCollapsed) {
     return (
-      <button
-        onClick={() => setIsCollapsed(false)}
-        className="glass-overlay p-2 rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"
-        aria-label="Expand event info"
-      >
-        <ChevronRight className="size-5 text-white/80" />
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setIsCollapsed(false)}
+          className="glass-overlay p-2 rounded-xl flex items-center justify-center hover:bg-white/20 transition-all"
+          aria-label="Expand event info"
+        >
+          <ChevronRight className="size-5 text-white/80" />
+        </button>
+        <span className="glass-overlay px-3 py-2 rounded-lg text-xs text-white whitespace-nowrap pointer-events-none">
+          Event Info
+        </span>
+      </div>
     )
   }
 

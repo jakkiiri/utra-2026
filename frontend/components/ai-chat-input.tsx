@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react"
 import { MessageSquare, Wand2, Mic, MicOff, Loader2, ChevronUp, ChevronDown } from "lucide-react"
+import { useSettings } from "@/contexts/settings-context"
 
 interface AIChatInputProps {
   onSendMessage: (message: string) => void
@@ -12,14 +13,15 @@ interface AIChatInputProps {
   placeholder?: string
 }
 
-export function AIChatInput({ 
-  onSendMessage, 
+export function AIChatInput({
+  onSendMessage,
   onVoiceInput,
   onVoiceStart,
   onListeningChange,
   isProcessing = false,
   placeholder = "Ask AI about historical comparisons or live stats..."
 }: AIChatInputProps) {
+  const { settings } = useSettings()
   const [message, setMessage] = useState("")
   const [isListening, setIsListening] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState("")
@@ -56,12 +58,21 @@ export function AIChatInput({
         setInterimTranscript(interim)
 
         if (finalTranscript) {
-          setMessage(finalTranscript)
           setInterimTranscript("")
-          if (onVoiceInput) {
-            onVoiceInput(finalTranscript)
-          }
           setIsListening(false)
+
+          if (settings.autoSubmitVoice) {
+            // Auto-submit: Use the same unified interface as submit button
+            if (onVoiceInput) {
+              onVoiceInput(finalTranscript)
+            } else {
+              onSendMessage(finalTranscript)
+            }
+            // Don't populate the input field when auto-submitting
+          } else {
+            // Manual submit: Populate the field for user to review
+            setMessage(finalTranscript)
+          }
         }
       }
 
